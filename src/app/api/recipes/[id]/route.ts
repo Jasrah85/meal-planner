@@ -19,10 +19,11 @@ type RecipeScalars = {
   servings?: number | null; notes?: string | null; steps?: string | null;
 };
 
-export async function GET(_: NextRequest, ctx: { params: { id: string } }) {
-  const id = Number(ctx.params.id);
+export async function GET(_: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;                 // 👈 unwrap
+  const recipeId = Number(id);
   const recipe = await prisma.recipe.findUnique({
-    where: { id },
+    where: { id: recipeId },
     include: {
       tags: true,
       ingredients: { include: { barcode: true, itemMatch: true }, orderBy: { id: "asc" } },
@@ -32,8 +33,9 @@ export async function GET(_: NextRequest, ctx: { params: { id: string } }) {
   return NextResponse.json({ recipe: { ...recipe, tags: recipe.tags.map(t => t.value) } });
 }
 
-export async function PUT(req: NextRequest, ctx: { params: { id: string } }) {
-  const id = Number(ctx.params.id);
+export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;                 // 👈 unwrap
+  const recipeId = Number(id);
   const body = (await req.json()) as UpdateRecipePayload;
 
   const scalar: RecipeScalars = {};
@@ -61,41 +63,45 @@ export async function PUT(req: NextRequest, ctx: { params: { id: string } }) {
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.recipe.update({ where: { id }, data: scalar });
+    await tx.recipe.update({ where: { id: recipeId }, data: scalar });
 
     if (replaceTags) {
-      await tx.recipeTag.deleteMany({ where: { recipeId: id } });
+      await tx.recipeTag.deleteMany({ where: { recipeId } });
       const tags = body.tags!.map(v => v.trim()).filter(Boolean);
-      if (tags.length) await tx.recipeTag.createMany({ data: tags.map(value => ({ recipeId: id, value })) });
+      if (tags.length) await tx.recipeTag.createMany({ data: tags.map(value => ({ recipeId, value })) });
     }
 
     if (replaceIngs) {
-      await tx.ingredient.deleteMany({ where: { recipeId: id } });
-      const clean = body.ingredients!.filter(i => !!i?.name?.trim()).map(i => ({
-        recipeId: id,
-        name: i.name.trim(),
-        qty: typeof i.qty === "number" ? i.qty : null,
-        unit: i.unit ?? null,
-        barcodeId: i.barcodeCode ? barcodeMap[i.barcodeCode] ?? null : null,
-      }));
+      await tx.ingredient.deleteMany({ where: { recipeId } });
+      const clean = body.ingredients!
+        .filter(i => !!i?.name?.trim())
+        .map(i => ({
+          recipeId,
+          name: i.name.trim(),
+          qty: typeof i.qty === "number" ? i.qty : null,
+          unit: i.unit ?? null,
+          barcodeId: i.barcodeCode ? barcodeMap[i.barcodeCode] ?? null : null,
+        }));
       if (clean.length) await tx.ingredient.createMany({ data: clean });
 
       if (body.syncBarcodeLabelsFromNames) {
-        for (const c of clean) if (c.barcodeId)
-          await tx.barcode.update({ where: { id: c.barcodeId }, data: { label: c.name } });
+        for (const c of clean) {
+          if (c.barcodeId) await tx.barcode.update({ where: { id: c.barcodeId }, data: { label: c.name } });
+        }
       }
     }
   });
 
   const recipe = await prisma.recipe.findUnique({
-    where: { id },
+    where: { id: recipeId },
     include: { tags: true, ingredients: { include: { barcode: true, itemMatch: true }, orderBy: { id: "asc" } } },
   });
   return NextResponse.json({ recipe: recipe ? { ...recipe, tags: recipe.tags.map(t => t.value) } : null });
 }
 
-export async function DELETE(_: NextRequest, ctx: { params: { id: string } }) {
-  const id = Number(ctx.params.id);
-  await prisma.recipe.delete({ where: { id } });
+export async function DELETE(_: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;                 // 👈 unwrap
+  const recipeId = Number(id);
+  await prisma.recipe.delete({ where: { id: recipeId } });
   return NextResponse.json({ ok: true });
 }
