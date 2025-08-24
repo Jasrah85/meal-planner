@@ -1,7 +1,8 @@
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 import prisma from "@/lib/db";
 import Link from "next/link";
-
-export const runtime = "nodejs";
 
 type ItemLite = { id: number; name: string; quantity: number };
 type ParamsP = { pantryId: string };

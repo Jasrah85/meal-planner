@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 import prisma from "@/lib/db";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
