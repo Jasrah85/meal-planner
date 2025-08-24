@@ -1,10 +1,96 @@
-// prisma/schema.postgres.prisma  (PRODUCTION: Postgres)
+// prisma/schema.postgres.prisma
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  // If Neon blocks CREATE DATABASE for shadow db during migrate dev, you can add:
+  // shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// ---------- MODELS ----------
+
+model User {
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  name      String?
+  pantries  Pantry[]
+  createdAt DateTime  @default(now())
+}
+
+model Pantry {
+  id        Int       @id @default(autoincrement())
+  name      String
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     Item[]
+  createdAt DateTime  @default(now())
+}
+
+model Item {
+  id         Int          @id @default(autoincrement())
+  name       String
+  quantity   Int          @default(1)
+  pantryId   Int
+  pantry     Pantry       @relation(fields: [pantryId], references: [id], onDelete: Cascade)
+  barcodeId  Int?
+  barcode    Barcode?     @relation(fields: [barcodeId], references: [id])
+  // backrelation for ingredient->item match
+  matchedIngredients Ingredient[] @relation("Ingredient_itemMatch")
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+model Barcode {
+  id        Int          @id @default(autoincrement())
+  code      String       @unique
+  label     String?
+  items     Item[]
+  // backrelation for ingredient->barcode
+  ingredients Ingredient[] @relation("Ingredient_barcode")
+  createdAt DateTime     @default(now())
+}
+
+model Recipe {
+  id          Int          @id @default(autoincrement())
+  title       String
+  notes       String?
+  steps       String?
+  sourceType  String?
+  sourceUrl   String?
+  servings    Int?
+  tags        RecipeTag[]
+  ingredients Ingredient[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model RecipeTag {
+  id       Int     @id @default(autoincrement())
+  recipeId Int
+  recipe   Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  value    String
+
+  @@index([recipeId])
+}
+
+model Ingredient {
+  id          Int       @id @default(autoincrement())
+  recipeId    Int
+  recipe      Recipe    @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  name        String
+  qty         Float?
+  unit        String?
+  barcodeId   Int?
+  barcode     Barcode?  @relation("Ingredient_barcode", fields: [barcodeId], references: [id])
+  itemMatchId Int?
+  itemMatch   Item?     @relation("Ingredient_itemMatch", fields: [itemMatchId], references: [id])
+  createdAt   DateTime  @default(now())
+
+  @@index([recipeId])
+  @@index([barcodeId])
+  @@index([itemMatchId])
 }
