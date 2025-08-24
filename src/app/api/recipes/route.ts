@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+export async function HEAD() {
+  return NextResponse.json(null, { status: 200 });
+}
+
 type NewIngredient = {
   name: string;
   qty?: number;
