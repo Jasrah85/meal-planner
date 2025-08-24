@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 type IngredientRow = {
   id: number;
@@ -87,7 +88,10 @@ export default function RecipeDetailPage({
 
   // ingredient row helpers
   const addRow = () =>
-    setRows((rs) => [...rs, { id: Math.random(), name: "", qty: null, unit: null } as any]);
+  setRows((rs) => [
+    ...rs,
+    { id: -Date.now(), name: "", qty: null, unit: null, barcode: null },
+  ]);
   const removeRow = (idx: number) =>
     setRows((rs) => rs.filter((_, i) => i !== idx));
   const updateRow = (idx: number, patch: Partial<IngredientRow>) =>
@@ -151,7 +155,7 @@ export default function RecipeDetailPage({
   // states
   if (isLoading) return <div>Loading…</div>;
   if (error) return <div className="text-red-600">Failed to load recipe.</div>;
-  if (data === null) return <div>Recipe not found. <a href="/recipes" className="underline">Back to recipes</a></div>;
+  if (data === null) return <div>Recipe not found. <Link href="/recipes" className="underline">Back to recipes</Link></div>;
 
   return (
     <div className="space-y-6 max-w-3xl">

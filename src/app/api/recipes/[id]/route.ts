@@ -4,31 +4,24 @@ import prisma from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
 type UpIngredient = { name: string; qty?: number; unit?: string; barcodeCode?: string };
-type UpdateRecipePayload = {
-  title?: string; sourceType?: string | null; sourceUrl?: string | null;
-  servings?: number | null; notes?: string | null; steps?: string | null;
-  tags?: string[]; ingredients?: UpIngredient[]; syncBarcodeLabelsFromNames?: boolean;
+type RecipeScalars = {
+  title?: string;
+  sourceType?: string | null;
+  sourceUrl?: string | null;
+  servings?: number | null;
+  notes?: string | null;
+  steps?: string | null;
 };
 
-export async function GET(_: NextRequest, ctx: { params: { id: string } }) {
-  const id = Number(ctx.params.id);
-  const recipe = await prisma.recipe.findUnique({
-    where: { id },
-    include: {
-      tags: true,
-      ingredients: { include: { barcode: true, itemMatch: true }, orderBy: { id: "asc" } },
-    },
-  });
-  if (!recipe) return NextResponse.json({ error: "not found" }, { status: 404 });
+export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+  const id = Number(params.id);
+  const body = (await req.json()) as {
+    title?: string; sourceType?: string | null; sourceUrl?: string | null;
+    servings?: number | null; notes?: string | null; steps?: string | null;
+    tags?: string[]; ingredients?: UpIngredient[]; syncBarcodeLabelsFromNames?: boolean;
+  };
 
-  return NextResponse.json({ recipe: { ...recipe, tags: recipe.tags.map(t => t.value) } });
-}
-
-export async function PUT(req: NextRequest, ctx: { params: { id: string } }) {
-  const id = Number(ctx.params.id);
-  const body = (await req.json()) as UpdateRecipePayload;
-
-  const scalar: any = {};
+  const scalar: RecipeScalars = {};
   if (typeof body.title === "string") scalar.title = body.title.trim();
   if ("sourceType" in body) scalar.sourceType = body.sourceType ?? null;
   if ("sourceUrl" in body) scalar.sourceUrl = body.sourceUrl ?? null;

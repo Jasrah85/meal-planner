@@ -1,19 +1,18 @@
 import prisma from "@/lib/db";
 import Link from "next/link";
 
-// Optional: ensure this page runs on Node (not Edge)
 export const runtime = "nodejs";
 
-// If you want explicit types for items:
 type ItemLite = { id: number; name: string; quantity: number };
+type ParamsP = { pantryId: string };
+type ParamsArg = { params: ParamsP } | { params: Promise<ParamsP> };
 
-export default async function PantryOverview({
-  params,
-}: {
-  // Accept both shapes to be future-proof
-  params: Promise<{ pantryId: string }> | { pantryId: string };
-}) {
-  const { pantryId } = await (params as any); // ✅ works if it's a Promise or a plain object
+async function unwrapParams(p: ParamsP | Promise<ParamsP>): Promise<ParamsP> {
+  return p instanceof Promise ? p : Promise.resolve(p);
+}
+
+export default async function PantryOverview(arg: ParamsArg) {
+  const { pantryId } = await unwrapParams(arg.params);
   const id = Number(pantryId);
   if (!Number.isFinite(id)) return <div>Invalid pantry id.</div>;
 
@@ -22,10 +21,7 @@ export default async function PantryOverview({
     select: {
       id: true,
       name: true,
-      items: {
-        orderBy: { id: "desc" },
-        select: { id: true, name: true, quantity: true },
-      },
+      items: { orderBy: { id: "desc" }, select: { id: true, name: true, quantity: true } },
     },
   });
 

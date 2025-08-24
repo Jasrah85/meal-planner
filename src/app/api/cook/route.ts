@@ -58,12 +58,11 @@ export async function POST(req: NextRequest) {
 
   for (const ing of recipe.ingredients) {
     const key = norm(ing.name);
-    let candidates =
-      bank.get(key) ??
-      // substring fallback: find any item name bank entry that contains the ingredient key (or vice versa)
-      [...bank.entries()]
-        .filter(([k]) => k === key || k.includes(key) || key.includes(k))
-        .flatMap(([, arr]) => arr);
+    const candidates =
+        bank.get(key) ??
+        [...bank.entries()]
+            .filter(([k]) => k === key || k.includes(key) || key.includes(k))
+            .flatMap(([, arr]) => arr);
 
     // pick the first item with quantity > 0, or just first
     const picked = candidates.find((c) => c.quantity > 0) ?? candidates[0];

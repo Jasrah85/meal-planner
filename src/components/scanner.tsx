@@ -1,50 +1,53 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { BrowserMultiFormatReader, NotFoundException } from "@zxing/library"; // @zxing/library
-// Docs: npmjs.com/package/@zxing/library  (we're using the browser camera APIs). :contentReference[oaicite:2]{index=2}
+import { BrowserMultiFormatReader, NotFoundException } from "@zxing/library";
 
 export default function Scanner({ onResult }: { onResult: (code: string) => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
 
   useEffect(() => {
+    const videoEl = videoRef.current; // capture once for cleanup
     const reader = new BrowserMultiFormatReader();
-    readerRef.current = reader;
-
     let active = true;
 
-    async function start() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      if (!videoRef.current) return;
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
+    // start camera + continuous decode; do NOT make the effect async
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false,
+        });
+        if (!videoEl) return;
+        videoEl.srcObject = stream;
+        await videoEl.play();
 
-      // Loop decode without blocking UI
-      (async function loop() {
-        if (!active) return;
-        try {
-          const result = await reader.decodeOnceFromVideoDevice(undefined, videoRef.current!);
-          if (result?.getText()) onResult(result.getText());
-        } catch (e) {
-          if (!(e instanceof NotFoundException)) {
-            console.warn("Decode error", e);
+        // don't assign/await this; it returns a Promise
+        reader.decodeFromVideoDevice(null, videoEl, (result, err) => {
+          if (!active) return;
+          if (result) {
+            const text = result.getText();
+            if (text) onResult(text);
+          } else if (err && !(err instanceof NotFoundException)) {
+            // eslint-disable-next-line no-console
+            console.warn("ZXing decode error:", err);
           }
-        } finally {
-          // small delay to prevent tight-looping
-          setTimeout(loop, 250);
-        }
-      })();
-    }
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error("Camera start failed:", e);
+      }
+    })();
 
-    start();
-
+    // ✅ cleanup must be sync and return void
     return () => {
       active = false;
-      reader.reset();
-      if (videoRef.current?.srcObject) {
-        (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-      }
+      try {
+        reader.reset(); // stops ZXing loop
+      } catch {/* ignore */}
+      const stream = (videoEl?.srcObject as MediaStream | null) ?? null;
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      if (videoEl) videoEl.srcObject = null;
     };
   }, [onResult]);
 
