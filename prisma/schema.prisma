@@ -1,4 +1,4 @@
-// generator/datasource as requested:
+// --- required blocks ---
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,7 +8,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Models (pantries, items, barcodes, plus a simple user)
+// --- pantry / inventory ---
+
 model User {
   id        Int       @id @default(autoincrement())
   email     String    @unique
@@ -36,6 +37,9 @@ model Item {
   barcode    Barcode?  @relation(fields: [barcodeId], references: [id])
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+
+  // back-relation to Ingredient.itemMatch
+  ingredientMatches Ingredient[]
 }
 
 model Barcode {
@@ -44,4 +48,52 @@ model Barcode {
   label     String?
   items     Item[]
   createdAt DateTime @default(now())
+
+  // back-relation to Ingredient.barcode
+  ingredients Ingredient[]
+}
+
+// --- recipes ---
+
+model Recipe {
+  id          Int          @id @default(autoincrement())
+  title       String
+  sourceType  String?
+  sourceUrl   String?
+  servings    Int?
+  notes       String?
+  steps       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  ingredients Ingredient[]
+  tags        RecipeTag[]
+}
+
+model Ingredient {
+  id          Int       @id @default(autoincrement())
+  recipeId    Int
+  name        String
+  qty         Float?
+  unit        String?
+
+  // optional mappings for smarter matching
+  barcodeId   Int?
+  barcode     Barcode?  @relation(fields: [barcodeId], references: [id])
+
+  itemMatchId Int?
+  itemMatch   Item?     @relation(fields: [itemMatchId], references: [id])
+
+  recipe      Recipe    @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+}
+
+model RecipeTag {
+  id       Int     @id @default(autoincrement())
+  recipeId Int
+  value    String
+
+  recipe   Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId, value])
+  @@unique([recipeId, value], name: "recipe_tag_unique")
 }
