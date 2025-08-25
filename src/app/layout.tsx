@@ -1,6 +1,5 @@
 import "./globals.css";
 import ReactQueryProvider from "../components/react-query-client";
-import Link from "next/link";
 import { Sidebar } from "@/components/Sidebar";
 import { TopNav } from "@/components/TopNav";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
