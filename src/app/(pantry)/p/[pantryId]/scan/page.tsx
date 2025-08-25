@@ -8,10 +8,10 @@ import Scanner from "@/components/scanner";
 export default function ScanPage({
   params,
 }: {
-  params: Promise<{ pantryId: string }>;          // 👈 change type
+  params: Promise<{ id: string }>;          // 👈 change type
 }) {
-  const { pantryId } = use(params);               // 👈 unwrap
-  const pantryIdNum = Number(pantryId);
+  const { id } = use(params);               // 👈 unwrap
+  const pantryIdNum = Number(id);
 
   const [code, setCode] = useState<string | null>(null);
   const [lookup, setLookup] = useState<{ code: string; label?: string } | null>(null);

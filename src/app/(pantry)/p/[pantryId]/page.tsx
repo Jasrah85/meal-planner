@@ -5,7 +5,7 @@ import prisma from "@/lib/db";
 import Link from "next/link";
 
 type ItemLite = { id: number; name: string; quantity: number };
-type ParamsP = { pantryId: string };
+type ParamsP = { id: string };
 type ParamsArg = { params: ParamsP } | { params: Promise<ParamsP> };
 
 async function unwrapParams(p: ParamsP | Promise<ParamsP>): Promise<ParamsP> {
@@ -13,12 +13,12 @@ async function unwrapParams(p: ParamsP | Promise<ParamsP>): Promise<ParamsP> {
 }
 
 export default async function PantryOverview(arg: ParamsArg) {
-  const { pantryId } = await unwrapParams(arg.params);
-  const id = Number(pantryId);
-  if (!Number.isFinite(id)) return <div>Invalid pantry id.</div>;
+  const { id } = await unwrapParams(arg.params);
+  const pantryId = Number(id);
+  if (!Number.isFinite(pantryId)) return <div>Invalid pantry id.</div>;
 
   const pantry = await prisma.pantry.findUnique({
-    where: { id },
+    where: { id: pantryId },
     select: {
       id: true,
       name: true,

@@ -19,9 +19,9 @@ async function fetchItems(pantryId: number) {
   return (await res.json()) as { items: ItemRow[] };
 }
 
-export default function PantryItems({ params }: { params: Promise<{ pantryId: string }> }) {
-  const { pantryId } = use(params);
-  const pantryIdNum = Number(pantryId);
+export default function PantryItems({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  const pantryIdNum = Number(id);
 
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
