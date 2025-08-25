@@ -16,8 +16,7 @@ export function Sidebar() {
         <div className="px-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
           Pantries
         </div>
-        <NavLink href="/p">All Pantries</NavLink>
-        <NavLink href="/settings">Manage Pantries</NavLink>
+        <NavLink href="/p">Manage Pantries</NavLink>
       </div>
 
       <div className="space-y-1">

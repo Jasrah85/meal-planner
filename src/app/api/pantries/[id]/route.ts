@@ -1,51 +1,41 @@
+import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import { NextRequest, NextResponse } from "next/server";
 
-export const runtime = "nodejs";
+type Params = { id: string };
 
-// Avoid 405s from HEAD prefetches
-export async function HEAD() {
-  return NextResponse.json(null, { status: 200 });
-}
-
-type PantryUpdateBody = { name?: string };
-
-export async function GET(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> } // 👈 Next 15: params is a Promise
+export async function PATCH(
+  req: Request,
+  { params }: { params: Params }
 ) {
-  const { id } = await ctx.params; // 👈 unwrap
-  const pantryId = Number(id);
-
-  const pantry = await prisma.pantry.findUnique({
-    where: { id: pantryId },
-    include: { items: { include: { barcode: true } } },
-  });
-  if (!pantry) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json({ pantry });
-}
-
-export async function PUT(
-  req: NextRequest,
-  ctx: { params: Promise<{ id: string }> } // 👈 Promise params
-) {
-  const { id } = await ctx.params; // 👈 unwrap
-  const pantryId = Number(id);
-
-  const body = (await req.json()) as PantryUpdateBody;
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
-  if (!name) return NextResponse.json({ error: "name required" }, { status: 400 });
-
-  const pantry = await prisma.pantry.update({ where: { id: pantryId }, data: { name } });
-  return NextResponse.json({ pantry });
+  try {
+    const { id } = params;
+    const body = (await req.json()) as { name?: string };
+    const name = (body.name ?? "").trim();
+    if (!name) {
+      return NextResponse.json({ error: "Name required" }, { status: 400 });
+    }
+    const updated = await prisma.pantry.update({
+      where: { id: Number(id) },
+      data: { name },
+      select: { id: true, name: true },
+    });
+    return NextResponse.json({ pantry: updated });
+  } catch (e) {
+    return NextResponse.json({ error: "Rename failed" }, { status: 500 });
+  }
 }
 
 export async function DELETE(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> } // 👈 Promise params
+  _req: Request,
+  { params }: { params: Params }
 ) {
-  const { id } = await ctx.params; // 👈 unwrap
-  const pantryId = Number(id);
-  await prisma.pantry.delete({ where: { id: pantryId } });
-  return NextResponse.json({ ok: true });
+  try {
+    const deleted = await prisma.pantry.delete({
+      where: { id: Number(params.id) },
+      select: { id: true },
+    });
+    return NextResponse.json({ ok: true, id: deleted.id });
+  } catch (e) {
+    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
+  }
 }
