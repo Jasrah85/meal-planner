@@ -14,7 +14,7 @@ type TagObj = { id: number; recipeId: number; value: string };
 type RecentRecipeRow = {
   id: number;
   title: string;
-  tags: unknown; // we’ll refine with type guards
+  tags: unknown; // refined via guards
 };
 
 /** Normalized recipe type for rendering */
@@ -24,7 +24,7 @@ type RecipeWithTags = {
   tags: Array<string | TagObj>;
 };
 
-/* ---------------------- runtime type guards (no any) --------------------- */
+/* ---------------------- runtime type guards --------------------- */
 
 function isTagObj(x: unknown): x is TagObj {
   return (
@@ -47,7 +47,7 @@ function isStringArray(xs: unknown): xs is string[] {
   return Array.isArray(xs) && xs.every((t) => typeof t === "string");
 }
 
-/* ----------------------------------------------------------------------- */
+/* --------------------------------------------------------------- */
 
 export default async function PantryOverview({
   params,
@@ -62,7 +62,6 @@ export default async function PantryOverview({
 
   if (!pantry) return notFound();
 
-  // Light stats + recent recipes (tags may be Tag[] relation or string[])
   const itemCount: number = await prisma.item
     .count({ where: { pantryId } })
     .catch(() => 0);
@@ -73,11 +72,7 @@ export default async function PantryOverview({
       take: 6,
       // If your schema stores tags as a relation, this returns TagObj[];
       // If tags are string[], 'tags: true' returns string[].
-      select: {
-        id: true,
-        title: true,
-        tags: true,
-      },
+      select: { id: true, title: true, tags: true },
     })
     .then((rows) =>
       rows.map(
@@ -140,7 +135,6 @@ export default async function PantryOverview({
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-medium">Recently Updated Recipes</h2>
-          <Link className="underline text-sm" href={`/p/${pantry.id}/saved`}>Filter & sort saved</Link>
         </div>
 
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

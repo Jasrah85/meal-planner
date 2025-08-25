@@ -1,12 +1,13 @@
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 import prisma from "@/lib/db";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 export default async function PantriesIndex() {
   const demo = await prisma.user.findUnique({ where: { email: "demo@pantry.local" } });
+
   const pantries = await prisma.pantry.findMany({
     where: demo ? { userId: demo.id } : undefined,
     orderBy: { id: "asc" },
