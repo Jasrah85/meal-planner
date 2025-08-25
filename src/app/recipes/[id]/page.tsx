@@ -25,26 +25,14 @@ type RecipeDetail = {
   tags: string[];
   ingredients: IngredientRow[];
 };
-
-function TagEditor({ id, existing }: { id: number; existing: string[] }) {
-  "use client";
-  const [tags, setTags] = useState(existing.join(", "));
-
-  async function save() {
-    await fetch(`/api/recipes/${id}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ tags: tags.split(",").map(s => s.trim()).filter(Boolean) }),
-    });
-    location.reload();
-  }
-  return (
-    <div className="mt-3 flex gap-2">
-      <input className="border rounded px-2 py-1 text-sm flex-1" value={tags} onChange={e => setTags(e.target.value)} placeholder="Comma-separated tags (e.g., diabetic, sensory)" />
-      <button onClick={save} className="px-2 py-1 border rounded text-sm">Save tags</button>
-    </div>
-  );
-}
+type CookMatched = { ingredient: string; itemId: number; before: number; decrement: number };
+type CookApplied = { itemId: number; before: number; after: number; dec: number };
+type CookSummary = { matched: number; missing: number; total: number };
+type CookResponse = {
+  pantryId: number; recipeId: number; title: string;
+  coverage: number; matched: CookMatched[]; missing: string[];
+  applied: CookApplied[]; summary: CookSummary;
+};
 
 async function fetchRecipe(id: number) {
   const res = await fetch(`/api/recipes/${id}`, { cache: "no-store" });
@@ -140,10 +128,10 @@ async function checkCoverage() {
       body: JSON.stringify({ pantryId: pid, recipeId, deduct: false }),
     });
     if (!res.ok) throw new Error("Coverage failed");
-    const json = await res.json();
+    const json = (await res.json()) as CookResponse;
     setCoverage({
       coverage: json.coverage,
-      matched: json.matched.map((m: any) => m.ingredient),
+      matched: (json.matched as CookMatched[]).map((m) => m.ingredient),
       missing: json.missing,
       counts: json.summary,
     });
@@ -153,7 +141,6 @@ async function checkCoverage() {
     setChecking(false);
   }
 }
-
 
   const [cooking, setCooking] = useState(false);
   const [cookResult, setCookResult] = useState<null | {
