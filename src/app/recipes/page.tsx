@@ -2,7 +2,7 @@
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
@@ -22,37 +22,11 @@ type RecipeListRow = {
 /* ----------------------------- Browse types ------------------------------ */
 type Provider = "MEALDB" | "API:SPOON" | "API:NINJAS";
 
-type MealDBBrowseCard = {
-  idMeal: string;
-  title: string;
-  thumb: string | null;
-  area: string | null;
-  category: string | null;
-  tags: string[];
-  existsRecipeId: number | null; // server pre-resolves for MealDB
-};
-
-type SpoonBrowseItem = {
-  externalId: string; // numeric id as string
-  title: string;
-  image: string | null;
-  sourceUrl: string | null;
-  provider: "API:SPOON";
-};
-
-type NinjasBrowseItem = {
-  externalId: string; // title-lowercased (used as key)
-  title: string;
-  image: string | null;
-  sourceUrl: string | null;
-  provider: "API:NINJAS";
-  preview?: string;
-  raw?: {
-    ingredients?: string | null;
-    instructions?: string | null;
-    servings?: string | null;
-  };
-};
+type NinjasRaw = {
+  ingredients?: string | null;
+  instructions?: string | null;
+  servings?: string | null;
+} | null;
 
 type ClientBrowseCard = {
   key: string;
@@ -60,14 +34,21 @@ type ClientBrowseCard = {
   externalId: string;
   title: string;
   image: string | null;
-  meta: string | null; // e.g., "Category • Area"
+  meta: string | null;      // e.g., "Category • Area"
   tags: string[];
-  sourceUrl: string | null;
+  sourceUrl: string | null; // if available
   existsRecipeId: number | null;
-  ninjasRaw?: NinjasBrowseItem["raw"]; // only for API:NINJAS imports
+  ninjasRaw?: NinjasRaw;
 };
 
-/* -------------------------------- Helpers -------------------------------- */
+type CombinedBrowseResponse = {
+  items: ClientBrowseCard[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+/* ----------------------------- Helpers ----------------------------------- */
 function extTagFor(provider: Provider, externalId: string) {
   switch (provider) {
     case "API:SPOON":
@@ -80,116 +61,30 @@ function extTagFor(provider: Provider, externalId: string) {
   }
 }
 
+async function fetchCombinedBrowse(q: string, page: number, pageSize: number): Promise<CombinedBrowseResponse> {
+  if (!q.trim()) return { items: [], total: 0, page, pageSize };
+  const url = `/api/recipes/browse?q=${encodeURIComponent(q)}&page=${page}&pageSize=${pageSize}`;
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error("Browse failed");
+  return (await r.json()) as CombinedBrowseResponse;
+}
+
 async function fetchByTagId(tag: string): Promise<number | null> {
-  // Requires you to have /api/recipes/by-tag in place
   const res = await fetch(`/api/recipes/by-tag?tag=${encodeURIComponent(tag)}`, { cache: "no-store" });
   if (!res.ok) return null;
   const json = (await res.json()) as { ok: boolean; id?: number };
   return json.ok && typeof json.id === "number" ? json.id : null;
 }
 
-/* ------------------------------ Library fetch ---------------------------- */
 async function fetchRecipes(q: string, tag: string) {
   const params = new URLSearchParams();
   if (q) params.set("query", q);
   if (tag) params.set("tag", tag);
-  const url = `/api/recipes${params.toString() ? `?${params}` : ""}`;
+  const url = `/api/recipes${params.toString() ? `?${params.toString()}` : ""}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to load recipes");
   const json = (await res.json()) as { recipes: RecipeListRow[] };
   return json.recipes;
-}
-
-/* ------------------------------ Browse fetchers -------------------------- */
-async function fetchMealDB(q: string, page: number, pageSize: number) {
-  if (!q.trim()) return { items: [] as ClientBrowseCard[], total: 0 };
-  const res = await fetch(
-    `/api/recipes/browse/themealdb?q=${encodeURIComponent(q)}&page=${page}&pageSize=${pageSize}`,
-    { cache: "no-store" }
-  );
-  if (!res.ok) throw new Error("Browse (TheMealDB) failed");
-  const data = (await res.json()) as { results: MealDBBrowseCard[]; total: number };
-  const items: ClientBrowseCard[] = data.results.map((r) => ({
-    key: `MEALDB:${r.idMeal}`,
-    provider: "MEALDB",
-    externalId: r.idMeal,
-    title: r.title,
-    image: r.thumb,
-    meta: [r.category || undefined, r.area || undefined].filter(Boolean).join(" • ") || null,
-    tags: r.tags,
-    sourceUrl: null,
-    existsRecipeId: r.existsRecipeId ?? null,
-  }));
-  return { items, total: data.total ?? items.length };
-}
-
-async function fetchSpoon(q: string, page: number, pageSize: number) {
-  if (!q.trim()) return { items: [] as ClientBrowseCard[], total: null as number | null };
-  const res = await fetch(
-    `/api/recipes/browse/spoonacular?q=${encodeURIComponent(q)}&page=${page}&pageSize=${pageSize}`,
-    { cache: "no-store" }
-  );
-  if (!res.ok) throw new Error("Browse (Spoonacular) failed");
-  const data = (await res.json()) as { items: SpoonBrowseItem[]; total?: number | null };
-
-  const items = await Promise.all(
-    (data.items || []).map(async (r) => {
-      const tag = extTagFor("API:SPOON", r.externalId);
-      const exists = await fetchByTagId(tag);
-      const card: ClientBrowseCard = {
-        key: `SPOON:${r.externalId}`,
-        provider: "API:SPOON",
-        externalId: r.externalId,
-        title: r.title,
-        image: r.image,
-        meta: null,
-        tags: [],
-        sourceUrl: r.sourceUrl,
-        existsRecipeId: exists,
-      };
-      return card;
-    })
-  );
-
-  return { items, total: data.total ?? null };
-}
-
-async function fetchNinjas(q: string, page: number, pageSize: number) {
-  if (!q.trim()) return { items: [] as ClientBrowseCard[], total: null as number | null };
-  const res = await fetch(
-    `/api/recipes/browse/ninjas?q=${encodeURIComponent(q)}&page=${page}&pageSize=${pageSize}`,
-    { cache: "no-store" }
-  );
-  if (!res.ok) throw new Error("Browse (API Ninjas) failed");
-  const nin = (await res.json()) as {
-    provider: "API:NINJAS";
-    page: number;
-    pageSize: number;
-    items: NinjasBrowseItem[];
-  };
-
-  const items = await Promise.all(
-    (nin.items || []).map(async (r) => {
-      const tag = extTagFor("API:NINJAS", r.externalId);
-      const exists = await fetchByTagId(tag);
-      const card: ClientBrowseCard = {
-        key: `NINJAS:${r.externalId}`,
-        provider: "API:NINJAS",
-        externalId: r.externalId,
-        title: r.title,
-        image: r.image,
-        meta: null,
-        tags: [],
-        sourceUrl: r.sourceUrl,
-        existsRecipeId: exists,
-        ninjasRaw: r.raw,
-      };
-      return card;
-    })
-  );
-
-  // API Ninjas often returns 1 item on free tier; we leave total as null
-  return { items, total: null as number | null };
 }
 
 /* ---------------------------------- Page --------------------------------- */
@@ -232,40 +127,18 @@ export default function RecipesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["recipes"] }),
   });
 
-  /* ---------- Unified browse (3 providers, one search) ---------- */
+  /* ---------- Unified browse (merged providers) ---------- */
   const [browseQ, setBrowseQ] = useState("");
-  const [pageMeal, setPageMeal] = useState(1);
-  const [pageSpoon, setPageSpoon] = useState(1);
-  const [pageNinjas, setPageNinjas] = useState(1);
-  const pageSizeMeal = 12;
-  const pageSizeSpoon = 12;
-  const pageSizeNinjas = 10;
+  const [page, setPage] = useState(1);
+  const pageSize = 12;
 
-  // Memoized keys so invalidateQueries works predictably
-  const keyMeal = useMemo(() => ["browse", "mealdb", browseQ, pageMeal, pageSizeMeal] as const, [browseQ, pageMeal]);
-  const keySpoon = useMemo(() => ["browse", "spoon", browseQ, pageSpoon, pageSizeSpoon] as const, [browseQ, pageSpoon]);
-  const keyNinjas = useMemo(
-    () => ["browse", "ninjas", browseQ, pageNinjas, pageSizeNinjas] as const,
-    [browseQ, pageNinjas]
-  );
-
-  const meal = useQuery({
-    queryKey: keyMeal,
-    queryFn: () => fetchMealDB(browseQ, pageMeal, pageSizeMeal),
-    enabled: !!browseQ.trim(),
-  });
-  const spoon = useQuery({
-    queryKey: keySpoon,
-    queryFn: () => fetchSpoon(browseQ, pageSpoon, pageSizeSpoon),
-    enabled: !!browseQ.trim(),
-  });
-  const ninjas = useQuery({
-    queryKey: keyNinjas,
-    queryFn: () => fetchNinjas(browseQ, pageNinjas, pageSizeNinjas),
+  const browse = useQuery({
+    queryKey: ["browse:combined", browseQ, page, pageSize] as const,
+    queryFn: () => fetchCombinedBrowse(browseQ, page, pageSize),
     enabled: !!browseQ.trim(),
   });
 
-  /* ---------- Import / Remove (for browse cards) ---------- */
+  /* ---------- Import / Remove for browse cards ---------- */
   const importOne = useMutation({
     mutationFn: async (card: ClientBrowseCard) => {
       if (card.provider === "MEALDB") {
@@ -298,9 +171,7 @@ export default function RecipesPage() {
       return r.json();
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: keyMeal });
-      await qc.invalidateQueries({ queryKey: keySpoon });
-      await qc.invalidateQueries({ queryKey: keyNinjas });
+      await qc.invalidateQueries({ queryKey: ["browse:combined", browseQ, page, pageSize] });
       await qc.invalidateQueries({ queryKey: ["recipes"] });
     },
   });
@@ -315,27 +186,22 @@ export default function RecipesPage() {
         if (!r.ok) throw new Error("Remove failed");
         return r.json();
       }
-      // Spoon / Ninjas: resolve recipe id via ext tag, then delete
-      const tag = extTagFor(card.provider, card.externalId);
-      const recipeId = await fetchByTagId(tag);
+      // Spoon/Ninjas: find recipe by ext tag then delete
+      const tagValue = extTagFor(card.provider, card.externalId);
+      const recipeId = await fetchByTagId(tagValue);
       if (!recipeId) throw new Error("Recipe not found locally");
-      const r = await fetch(`/api/recipes/${recipeId}`, { method: "DELETE" });
-      if (!r.ok) throw new Error("Remove failed");
-      return r.json();
+      const del = await fetch(`/api/recipes/${recipeId}`, { method: "DELETE" });
+      if (!del.ok) throw new Error("Remove failed");
+      return del.json();
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: keyMeal });
-      await qc.invalidateQueries({ queryKey: keySpoon });
-      await qc.invalidateQueries({ queryKey: keyNinjas });
+      await qc.invalidateQueries({ queryKey: ["browse:combined", browseQ, page, pageSize] });
       await qc.invalidateQueries({ queryKey: ["recipes"] });
     },
   });
 
-  // Derived page counts (only MealDB/Spoon provide totals)
-  const mealTotal = meal.data?.total ?? 0;
-  const mealPages = Math.max(1, Math.ceil(mealTotal / pageSizeMeal));
-  const spoonTotal = spoon.data?.total ?? 0;
-  const spoonPages = spoonTotal ? Math.max(1, Math.ceil(spoonTotal / pageSizeSpoon)) : null;
+  const total = browse.data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <div className="space-y-8">
@@ -394,9 +260,9 @@ export default function RecipesPage() {
         )}
       </div>
 
-      {/* Unified Browse: one search, three sections */}
-      <div className="border-t pt-6 space-y-6">
-        <div className="font-medium">Browse external recipes (TheMealDB • Spoonacular • API Ninjas)</div>
+      {/* Unified browse */}
+      <div className="border-t pt-6 space-y-3">
+        <div className="font-medium">Browse external recipes (combined)</div>
 
         <div className="flex flex-wrap items-center gap-2">
           <Input
@@ -404,227 +270,84 @@ export default function RecipesPage() {
             value={browseQ}
             onChange={(e) => {
               setBrowseQ(e.target.value);
-              setPageMeal(1);
-              setPageSpoon(1);
-              setPageNinjas(1);
+              setPage(1);
             }}
             className="min-w-52"
           />
-          <Button
-            onClick={() => {
-              meal.refetch();
-              spoon.refetch();
-              ninjas.refetch();
-            }}
-            disabled={!browseQ.trim() || meal.isFetching || spoon.isFetching || ninjas.isFetching}
-          >
-            {meal.isFetching || spoon.isFetching || ninjas.isFetching ? "Searching…" : "Search all"}
+          <Button onClick={() => browse.refetch()} disabled={!browseQ.trim() || browse.isFetching}>
+            {browse.isFetching ? "Searching…" : "Search"}
           </Button>
         </div>
 
-        {/* TheMealDB Section */}
-        <section className="space-y-3">
-          <div className="text-sm font-medium">TheMealDB</div>
-          {meal.isLoading ? (
-            <div className="text-sm text-gray-500">Loading…</div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {meal.data?.items?.map((card) => (
-                  <div key={card.key} className="border rounded-md p-2 space-y-2">
-                    {card.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={card.image} alt={card.title} className="w-full h-32 object-cover rounded" />
-                    ) : null}
-                    <div className="text-sm font-medium line-clamp-2">{card.title}</div>
-                    {card.meta ? <div className="text-xs text-gray-500">{card.meta}</div> : null}
-                    <div className="flex flex-wrap gap-1">
-                      {card.tags.map((t) => (
-                        <span key={t} className="text-[11px] bg-gray-100 px-2 py-0.5 rounded">
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                    <div className="mt-1">
-                      {card.existsRecipeId ? (
-                        <Button
-                          variant="ghost"
-                          className="text-red-600"
-                          size="sm"
-                          onClick={() => removeImported.mutate(card)}
-                          disabled={removeImported.isPending}
-                        >
-                          {removeImported.isPending ? "Removing…" : "Remove"}
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => importOne.mutate(card)}
-                          disabled={importOne.isPending}
-                        >
-                          {importOne.isPending ? "Importing…" : "Import"}
-                        </Button>
-                      )}
-                    </div>
+        {browse.isLoading ? (
+          <div className="text-sm text-gray-500">Loading…</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {browse.data?.items?.map((card) => (
+                <div key={card.key} className="border rounded-md p-2 space-y-2">
+                  {card.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={card.image} alt={card.title} className="w-full h-32 object-cover rounded" />
+                  ) : null}
+                  <div className="text-xs text-gray-500">{card.provider}</div>
+                  <div className="text-sm font-medium line-clamp-2">{card.title}</div>
+                  {card.meta ? <div className="text-xs text-gray-500">{card.meta}</div> : null}
+                  {card.sourceUrl ? (
+                    <a className="text-xs underline" href={card.sourceUrl} target="_blank" rel="noreferrer">
+                      Source
+                    </a>
+                  ) : null}
+                  <div className="flex flex-wrap gap-1">
+                    {card.tags.map((t) => (
+                      <span key={t} className="text-[11px] bg-gray-100 px-2 py-0.5 rounded">
+                        {t}
+                      </span>
+                    ))}
                   </div>
-                ))}
-              </div>
-
-              {mealTotal > pageSizeMeal && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPageMeal((p) => Math.max(1, p - 1))}
-                    disabled={pageMeal === 1}
-                  >
-                    Prev
-                  </Button>
-                  <span className="text-sm">
-                    Page {pageMeal} / {mealPages}
-                  </span>
-                  <Button variant="outline" size="sm" onClick={() => setPageMeal((p) => Math.min(mealPages, p + 1))}>
-                    Next
-                  </Button>
+                  <div className="mt-1">
+                    {card.existsRecipeId ? (
+                      <Button
+                        variant="ghost"
+                        className="text-red-600"
+                        size="sm"
+                        onClick={() => removeImported.mutate(card)}
+                        disabled={removeImported.isPending}
+                      >
+                        {removeImported.isPending ? "Removing…" : "Remove"}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => importOne.mutate(card)}
+                        disabled={importOne.isPending}
+                      >
+                        {importOne.isPending ? "Importing…" : "Import"}
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              )}
-            </>
-          )}
-        </section>
+              ))}
+            </div>
 
-        {/* Spoonacular Section */}
-        <section className="space-y-3">
-          <div className="text-sm font-medium">Spoonacular</div>
-          {spoon.isLoading ? (
-            <div className="text-sm text-gray-500">Loading…</div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {spoon.data?.items?.map((card) => (
-                  <div key={card.key} className="border rounded-md p-2 space-y-2">
-                    {card.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={card.image} alt={card.title} className="w-full h-32 object-cover rounded" />
-                    ) : null}
-                    <div className="text-sm font-medium line-clamp-2">{card.title}</div>
-                    {card.sourceUrl ? (
-                      <a className="text-xs underline" href={card.sourceUrl} target="_blank" rel="noreferrer">
-                        Source
-                      </a>
-                    ) : null}
-                    <div className="mt-1">
-                      {card.existsRecipeId ? (
-                        <Button
-                          variant="ghost"
-                          className="text-red-600"
-                          size="sm"
-                          onClick={() => removeImported.mutate(card)}
-                          disabled={removeImported.isPending}
-                        >
-                          {removeImported.isPending ? "Removing…" : "Remove"}
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => importOne.mutate(card)}
-                          disabled={importOne.isPending}
-                        >
-                          {importOne.isPending ? "Importing…" : "Import"}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {spoonPages && spoonPages > 1 && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPageSpoon((p) => Math.max(1, p - 1))}
-                    disabled={pageSpoon === 1}
-                  >
-                    Prev
-                  </Button>
-                  <span className="text-sm">
-                    Page {pageSpoon} / {spoonPages}
-                  </span>
-                  <Button variant="outline" size="sm" onClick={() => setPageSpoon((p) => Math.min(spoonPages, p + 1))}>
-                    Next
-                  </Button>
-                </div>
-              )}
-            </>
-          )}
-        </section>
-
-        {/* API Ninjas Section */}
-        <section className="space-y-3">
-          <div className="text-sm font-medium">API Ninjas</div>
-          {ninjas.isLoading ? (
-            <div className="text-sm text-gray-500">Loading…</div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {ninjas.data?.items?.map((card) => (
-                  <div key={card.key} className="border rounded-md p-2 space-y-2">
-                    {card.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={card.image} alt={card.title} className="w-full h-32 object-cover rounded" />
-                    ) : null}
-                    <div className="text-sm font-medium line-clamp-2">{card.title}</div>
-                    <div className="text-xs text-gray-500">{card.meta}</div>
-                    <div className="mt-1">
-                      {card.existsRecipeId ? (
-                        <Button
-                          variant="ghost"
-                          className="text-red-600"
-                          size="sm"
-                          onClick={() => removeImported.mutate(card)}
-                          disabled={removeImported.isPending}
-                        >
-                          {removeImported.isPending ? "Removing…" : "Remove"}
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => importOne.mutate(card)}
-                          disabled={importOne.isPending}
-                        >
-                          {importOne.isPending ? "Importing…" : "Import"}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Most free plans return 1 result; we still render pager for future upgrades */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPageNinjas((p) => Math.max(1, p - 1))}
-                  disabled={pageNinjas === 1}
-                >
+            {/* Pager */}
+            {((browse.data?.total ?? 0) > pageSize || page > 1) && (
+              <div className="flex items-center gap-2 mt-2">
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
                   Prev
                 </Button>
-                <span className="text-sm">Page {pageNinjas}</span>
-                <Button variant="outline" size="sm" onClick={() => setPageNinjas((p) => p + 1)}>
+                <span className="text-sm">
+                  Page {page}
+                  {browse.data?.total ? ` / ${Math.max(1, Math.ceil((browse.data.total ?? 0) / pageSize))}` : ""}
+                </span>
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)}>
                   Next
                 </Button>
               </div>
-
-              <div className="text-xs text-gray-500">
-                On API Ninjas free tier, pagination often returns a single result per query.
-              </div>
-            </>
-          )}
-        </section>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
