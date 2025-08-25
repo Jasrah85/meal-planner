@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import prisma from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
+/* ----------------------------- Types ----------------------------- */
 type Provider = "MEALDB" | "API:SPOON" | "API:NINJAS";
 
 type ClientBrowseCard = {
@@ -11,13 +12,26 @@ type ClientBrowseCard = {
   externalId: string;
   title: string;
   image: string | null;
-  meta: string | null;      // e.g., "Category • Area"
+  meta: string | null; // e.g., "Category • Area"
   tags: string[];
   sourceUrl: string | null; // if available
   existsRecipeId: number | null;
-  ninjasRaw?: { ingredients?: string | null; instructions?: string | null; servings?: string | null } | null;
+  ninjasRaw?:
+    | { ingredients?: string | null; instructions?: string | null; servings?: string | null }
+    | null;
 };
 
+type MealDBMeal = {
+  idMeal: string;
+  strMeal: string | null;
+  strMealThumb: string | null;
+  strCategory: string | null;
+  strArea: string | null;
+  strTags: string | null;
+  strSource: string | null;
+};
+
+/* --------------------------- Helpers ---------------------------- */
 function extTagFor(provider: Provider, externalId: string) {
   switch (provider) {
     case "API:SPOON":
@@ -30,39 +44,58 @@ function extTagFor(provider: Provider, externalId: string) {
   }
 }
 
+/* ----------------------- External fetchers ---------------------- */
 async function fetchMealDB(q: string): Promise<{ items: ClientBrowseCard[]; total: number }> {
   const url = `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(q)}`;
   const r = await fetch(url, { cache: "no-store" });
   if (!r.ok) return { items: [], total: 0 };
-  const json = await r.json();
-  const meals: any[] = json?.meals ?? []; // API is untyped
 
-  const items: ClientBrowseCard[] = meals.map((m) => ({
-    key: `MEALDB:${m.idMeal}`,
-    provider: "MEALDB",
-    externalId: String(m.idMeal),
-    title: String(m.strMeal || "").trim(),
-    image: (m.strMealThumb && String(m.strMealThumb)) || null,
-    meta: [m.strCategory || undefined, m.strArea || undefined].filter(Boolean).join(" • ") || null,
-    tags: String(m.strTags || "")
-      .split(",")
-      .map((t: string) => t.trim())
-      .filter(Boolean),
-    sourceUrl: m.strSource ? String(m.strSource) : null,
-    existsRecipeId: null,     // filled later from DB
-  }));
+  const json = (await r.json()) as { meals?: MealDBMeal[] | null };
+  const meals: MealDBMeal[] = Array.isArray(json?.meals) ? json!.meals! : [];
+
+  const items: ClientBrowseCard[] = meals.map((m) => {
+    const title = (m.strMeal ?? "").trim();
+    const image = m.strMealThumb ? String(m.strMealThumb) : null;
+    const meta =
+      [m.strCategory ?? undefined, m.strArea ?? undefined].filter(Boolean).join(" • ") || null;
+    const tagStr = (m.strTags ?? "").trim();
+    const tags = tagStr ? tagStr.split(",").map((t) => t.trim()).filter(Boolean) : [];
+    const sourceUrl = m.strSource ? String(m.strSource) : null;
+
+    return {
+      key: `MEALDB:${m.idMeal}`,
+      provider: "MEALDB",
+      externalId: m.idMeal,
+      title,
+      image,
+      meta,
+      tags,
+      sourceUrl,
+      existsRecipeId: null, // filled later
+    };
+  });
 
   return { items, total: items.length };
 }
 
-async function fetchSpoon(q: string, page: number, pageSize: number, apiKey: string | undefined)
-: Promise<{ items: ClientBrowseCard[]; total: number | null }> {
+async function fetchSpoon(
+  q: string,
+  page: number,
+  pageSize: number,
+  apiKey: string | undefined
+): Promise<{ items: ClientBrowseCard[]; total: number | null }> {
   if (!apiKey) return { items: [], total: null };
   const offset = Math.max(0, (page - 1) * pageSize);
-  const url = `https://api.spoonacular.com/recipes/complexSearch?query=${encodeURIComponent(q)}&addRecipeInformation=true&number=${pageSize}&offset=${offset}&apiKey=${encodeURIComponent(apiKey)}`;
+  const url = `https://api.spoonacular.com/recipes/complexSearch?query=${encodeURIComponent(
+    q
+  )}&addRecipeInformation=true&number=${pageSize}&offset=${offset}&apiKey=${encodeURIComponent(
+    apiKey
+  )}`;
+
   const r = await fetch(url, { cache: "no-store" });
   if (!r.ok) return { items: [], total: null };
-  const json = await r.json() as {
+
+  const json = (await r.json()) as {
     results?: Array<{ id: number; title: string; image?: string; sourceUrl?: string }>;
     totalResults?: number;
   };
@@ -76,22 +109,29 @@ async function fetchSpoon(q: string, page: number, pageSize: number, apiKey: str
     meta: null,
     tags: [],
     sourceUrl: res.sourceUrl ?? null,
-    existsRecipeId: null, // filled later
+    existsRecipeId: null,
   }));
 
-  return { items, total: typeof json.totalResults === "number" ? json.totalResults : null };
+  return {
+    items,
+    total: typeof json.totalResults === "number" ? json.totalResults : null,
+  };
 }
 
-async function fetchNinjas(q: string, pageSize: number, apiKey: string | undefined)
-: Promise<{ items: ClientBrowseCard[]; total: number | null }> {
+async function fetchNinjas(
+  q: string,
+  pageSize: number,
+  apiKey: string | undefined
+): Promise<{ items: ClientBrowseCard[]; total: number | null }> {
   if (!apiKey) return { items: [], total: null };
-  // Free tier often returns 1; support a small pageSize request if supported by API
+
   const url = `https://api.api-ninjas.com/v1/recipe?query=${encodeURIComponent(q)}`;
   const r = await fetch(url, {
     cache: "no-store",
     headers: { "X-Api-Key": apiKey },
   });
   if (!r.ok) return { items: [], total: null };
+
   const arr = (await r.json()) as Array<{
     title?: string;
     ingredients?: string;
@@ -99,7 +139,6 @@ async function fetchNinjas(q: string, pageSize: number, apiKey: string | undefin
     instructions?: string;
   }>;
 
-  // Slice to pageSize to avoid flooding UI
   const trimmed = arr.slice(0, Math.max(1, Math.min(pageSize, 10)));
 
   const items: ClientBrowseCard[] = trimmed.map((it) => {
@@ -123,9 +162,10 @@ async function fetchNinjas(q: string, pageSize: number, apiKey: string | undefin
     };
   });
 
-  return { items, total: null };
+  return { items, total: null }; // free tier usually has unknown totals
 }
 
+/* ----------------------------- Route ---------------------------- */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") || "").trim();
@@ -146,7 +186,7 @@ export async function GET(req: NextRequest) {
     fetchNinjas(q, pageSize, NINJAS_KEY),
   ]);
 
-  // Combine all items; dedupe by provider+externalId (defensive)
+  // Combine & de-dupe by provider+externalId
   const combinedMap = new Map<string, ClientBrowseCard>();
   const push = (c: ClientBrowseCard) => {
     const k = `${c.provider}:${c.externalId}`;
@@ -158,28 +198,25 @@ export async function GET(req: NextRequest) {
 
   let combined = Array.from(combinedMap.values());
 
-  // Sort: simple alpha by title
-  combined.sort((a, b) => a.title.localeCompare(b.title));
-
-  // Mark which ones already exist locally (via tag scan)
+  // Mark which ones already exist locally via tags
   const tagList = combined.map((c) => extTagFor(c.provider, c.externalId));
-  const tagRows = tagList.length
-    ? await prisma.recipeTag.findMany({
-        where: { value: { in: tagList } },
-        select: { value: true, recipeId: true },
-      })
-    : [];
-  const tagToId = new Map(tagRows.map((r) => [r.value, r.recipeId]));
+  const tagRows =
+    tagList.length > 0
+      ? await prisma.recipeTag.findMany({
+          where: { value: { in: tagList } },
+          select: { value: true, recipeId: true },
+        })
+      : [];
+  const tagToId = new Map<string, number>(tagRows.map((r) => [r.value, r.recipeId]));
   combined = combined.map((c) => ({
     ...c,
     existsRecipeId: tagToId.get(extTagFor(c.provider, c.externalId)) ?? null,
   }));
 
-  // Pagination over the combined list
+  // Sort & paginate
+  combined.sort((a, b) => a.title.localeCompare(b.title));
   const totalApprox =
-    (meal.total ?? 0) +
-    (spoon.total ?? spoon.items.length) + // use API total if present
-    (ninjas.total ?? ninjas.items.length);
+    (meal.total ?? 0) + (spoon.total ?? spoon.items.length) + (ninjas.total ?? ninjas.items.length);
 
   const start = (page - 1) * pageSize;
   const end = start + pageSize;
@@ -187,7 +224,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     items,
-    total: totalApprox || combined.length, // fallback
+    total: totalApprox || combined.length,
     page,
     pageSize,
   });

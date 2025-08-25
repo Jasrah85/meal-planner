@@ -45,8 +45,13 @@ export default async function Home() {
   return (
     <div className="space-y-8">
       <section>
-        <h1 className="text-2xl font-semibold">Pantry Planner</h1>
-        <p className="text-sm text-gray-600">Manage pantries, scan items, and plan meals from your inventory.</p>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">Pantry Planner</h1>
+          <div className="flex gap-2">
+            {/* future quick actions */}
+          </div>
+        </div>
+
       </section>
 
       {/* Pantries */}

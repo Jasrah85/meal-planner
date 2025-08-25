@@ -38,3 +38,15 @@ html, body, :root {
   height: 100%;
 }
 
+/* Keep content from hugging edges on mobile */
+.container-gutter {
+  padding-left: clamp(1rem, 4vw, 1.25rem);
+  padding-right: clamp(1rem, 4vw, 1.25rem);
+}
+
+/* Hide sidebar on mobile unless we implement the slide-over */
+@media (max-width: 1023px) {
+  html[data-sidebar-open="true"] aside {
+    display: block !important; /* If you opt into a slide-over later */
+  }
+}
