@@ -18,23 +18,40 @@ type RecipeListRow = {
   _count?: { ingredients: number };
 };
 
-async function fetchRecipes(q: string) {
-  const url = q ? `/api/recipes?query=${encodeURIComponent(q)}` : "/api/recipes";
+type BrowseCard = {
+  idMeal: string;
+  title: string;
+  thumb: string | null;
+  area: string | null;
+  category: string | null;
+  tags: string[];
+  existsRecipeId: number | null;
+};
+
+async function fetchRecipes(q: string, tag: string) {
+  const params = new URLSearchParams();
+  if (q) params.set("query", q);
+  if (tag) params.set("tag", tag);
+  const url = `/api/recipes${params.toString() ? `?${params.toString()}` : ""}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to load recipes");
-  const json = await res.json() as { recipes: RecipeListRow[] };
+  const json = (await res.json()) as { recipes: RecipeListRow[] };
   return json.recipes;
 }
 
 export default function RecipesPage() {
   const qc = useQueryClient();
-  const [q, setQ] = useState("");
 
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ["recipes", q],
-    queryFn: () => fetchRecipes(q),
+  // Library search
+  const [q, setQ] = useState("");
+  const [tag, setTag] = useState("");
+
+  const { data: library, isLoading, refetch } = useQuery({
+    queryKey: ["recipes", q, tag],
+    queryFn: () => fetchRecipes(q, tag),
   });
 
+  // Quick create (user recipes)
   const [newTitle, setNewTitle] = useState("");
   const create = useMutation({
     mutationFn: async () => {
@@ -52,82 +69,143 @@ export default function RecipesPage() {
     },
   });
 
-  // Simple TheMealDB import UI
-  const [importQ, setImportQ] = useState("");
-  const [importing, setImporting] = useState(false);
-  const importFromMealDB = async () => {
-    if (!importQ.trim()) return;
-    setImporting(true);
+  // Remove from library (DELETE /api/recipes/:id)
+  const remove = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/recipes/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["recipes"] }),
+  });
+
+  // Browse (TheMealDB)
+  const [browseQ, setBrowseQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(12);
+  const [browsing, setBrowsing] = useState(false);
+  const [browseTotal, setBrowseTotal] = useState(0);
+  const [results, setResults] = useState<BrowseCard[]>([]);
+
+  async function loadBrowse(p = 1) {
+    setBrowsing(true);
     try {
-      const url = `/api/recipes/import/themealdb?q=${encodeURIComponent(importQ.trim())}&limit=5&import=true`;
-      const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) throw new Error("Import failed");
-      await res.json();
-      await refetch();
-      setImportQ("");
-      alert("Imported recipes from TheMealDB.");
-    } catch (e) {
-      alert((e as Error).message);
+      const r = await fetch(`/api/recipes/browse/themealdb?q=${encodeURIComponent(browseQ)}&page=${p}&pageSize=${pageSize}`);
+      const data = await r.json();
+      setResults(data.results || []);
+      setBrowseTotal(data.total || 0);
+      setPage(p);
     } finally {
-      setImporting(false);
+      setBrowsing(false);
     }
-  };
+  }
+
+  async function importOne(idMeal: string) {
+    const r = await fetch(`/api/recipes/import/themealdb`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idMeal }),
+    });
+    if (r.ok) {
+      await loadBrowse(page);
+      await refetch();
+    }
+  }
+
+  async function removeOne(idMeal: string) {
+    if (!confirm("Remove this imported recipe?")) return;
+    const r = await fetch(`/api/recipes/import/themealdb?idMeal=${encodeURIComponent(idMeal)}`, { method: "DELETE" });
+    if (r.ok) {
+      await loadBrowse(page);
+      await refetch();
+    }
+  }
+
+  const pageCount = Math.max(1, Math.ceil(browseTotal / pageSize));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <h1 className="text-2xl font-semibold">Recipes</h1>
 
-      {/* Search */}
-      <div className="flex gap-2 max-w-xl">
-        <Input placeholder="Search recipes…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <Button onClick={() => refetch()}>Search</Button>
-        <Link href="/recipes/new" className="underline ml-auto">New Recipe</Link>
-      </div>
+      {/* Library search/filter + quick create */}
+      <div className="space-y-4">
+        <div className="flex gap-2 max-w-2xl">
+          <Input placeholder="Search library…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input placeholder="Filter by tag (e.g. diabetic)" value={tag} onChange={(e) => setTag(e.target.value)} />
+          <Button onClick={() => refetch()}>Search</Button>
+          <Link href="/recipes/new" className="underline ml-auto">New Recipe</Link>
+        </div>
 
-      {/* Quick create */}
-      <div className="flex gap-2 max-w-xl">
-        <Input placeholder="Quick add title…" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
-        <Button onClick={() => create.mutate()} disabled={!newTitle.trim() || create.isPending}>
-          {create.isPending ? "Creating…" : "Create"}
-        </Button>
-      </div>
-
-      {/* Import from TheMealDB */}
-      <div className="rounded-md border p-3 max-w-xl">
-        <div className="font-medium mb-2">Import from TheMealDB</div>
-        <div className="flex gap-2">
-          <Input placeholder="Try: chicken, pasta…" value={importQ} onChange={(e) => setImportQ(e.target.value)} />
-          <Button onClick={importFromMealDB} disabled={importing || !importQ.trim()}>
-            {importing ? "Importing…" : "Import 5"}
+        <div className="flex gap-2 max-w-2xl">
+          <Input placeholder="Quick add title…" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+          <Button onClick={() => create.mutate()} disabled={!newTitle.trim() || create.isPending}>
+            {create.isPending ? "Creating…" : "Create"}
           </Button>
         </div>
-        <div className="text-xs text-gray-500 mt-1">Imports are saved immediately to your DB.</div>
+
+        {/* Library list with remove */}
+        {isLoading ? (
+          <div>Loading…</div>
+        ) : (
+          <ul className="divide-y rounded-md border">
+            {library?.map((r) => (
+              <li key={r.id} className="p-3 flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-medium">
+                    <Link href={`/recipes/${r.id}`} className="underline">{r.title}</Link>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {r._count?.ingredients ?? 0} ingredients
+                    {r.tags?.length ? ` • ${r.tags.join(", ")}` : ""}
+                    {r.sourceType ? ` • ${r.sourceType}` : ""}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {r.sourceUrl && (
+                    <a className="text-xs underline" href={r.sourceUrl} target="_blank" rel="noreferrer">Source</a>
+                  )}
+                  <Button variant="ghost" className="text-red-600" onClick={() => remove.mutate(r.id)}>Remove</Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {/* List */}
-      {isLoading ? (
-        <div>Loading…</div>
-      ) : (
-        <ul className="divide-y rounded-md border">
-          {data?.map((r) => (
-            <li key={r.id} className="p-3 flex items-center justify-between gap-3">
-              <div>
-                <div className="font-medium">
-                  <Link href={`/recipes/${r.id}`} className="underline">{r.title}</Link>
-                </div>
-                <div className="text-xs text-gray-500">
-                  {r._count?.ingredients ?? 0} ingredients
-                  {r.tags?.length ? ` • ${r.tags.join(", ")}` : ""}
-                  {r.sourceType ? ` • ${r.sourceType}` : ""}
-                </div>
+      {/* Browse TheMealDB with pagination + import/remove toggle */}
+      <div className="border-t pt-6">
+        <div className="font-medium mb-2">Browse (TheMealDB)</div>
+        <div className="flex gap-2 max-w-2xl">
+          <Input placeholder="Try: chicken, pasta…" value={browseQ} onChange={(e) => setBrowseQ(e.target.value)} />
+          <Button onClick={() => loadBrowse(1)} disabled={browsing}>{browsing ? "Searching…" : "Search"}</Button>
+        </div>
+
+        <ul className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+          {results.map((r) => (
+            <li key={r.idMeal} className="border rounded p-3">
+              <div className="font-medium">{r.title}</div>
+              <div className="text-xs text-gray-500">{r.category || "—"} • {r.area || "—"}</div>
+              {r.thumb ? <img src={r.thumb} alt="" className="mt-2 w-full rounded" /> : null}
+              <div className="mt-2 flex flex-wrap gap-1">
+                {r.tags.map((t) => <span key={t} className="text-xs bg-gray-100 px-2 py-0.5 rounded">{t}</span>)}
               </div>
-              {r.sourceUrl && (
-                <a className="text-xs underline" href={r.sourceUrl} target="_blank" rel="noreferrer">Source</a>
-              )}
+              <div className="mt-3">
+                {r.existsRecipeId
+                  ? <Button variant="ghost" className="text-red-600" onClick={() => removeOne(r.idMeal)}>Remove</Button>
+                  : <Button variant="outline" onClick={() => importOne(r.idMeal)}>Import</Button>}
+              </div>
             </li>
           ))}
         </ul>
-      )}
+
+        {browseTotal > pageSize && (
+          <div className="flex items-center justify-center gap-2 mt-4">
+            <Button variant="outline" onClick={() => loadBrowse(Math.max(1, page - 1))} disabled={page <= 1}>Prev</Button>
+            <div className="text-sm">Page {page} / {pageCount}</div>
+            <Button variant="outline" onClick={() => loadBrowse(Math.min(pageCount, page + 1))} disabled={page >= pageCount}>Next</Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -26,6 +26,26 @@ type RecipeDetail = {
   ingredients: IngredientRow[];
 };
 
+function TagEditor({ id, existing }: { id: number; existing: string[] }) {
+  "use client";
+  const [tags, setTags] = useState(existing.join(", "));
+
+  async function save() {
+    await fetch(`/api/recipes/${id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tags: tags.split(",").map(s => s.trim()).filter(Boolean) }),
+    });
+    location.reload();
+  }
+  return (
+    <div className="mt-3 flex gap-2">
+      <input className="border rounded px-2 py-1 text-sm flex-1" value={tags} onChange={e => setTags(e.target.value)} placeholder="Comma-separated tags (e.g., diabetic, sensory)" />
+      <button onClick={save} className="px-2 py-1 border rounded text-sm">Save tags</button>
+    </div>
+  );
+}
+
 async function fetchRecipe(id: number) {
   const res = await fetch(`/api/recipes/${id}`, { cache: "no-store" });
   if (res.status === 404) return null; // handle not found cleanly
@@ -109,21 +129,31 @@ export default function RecipeDetailPage({
     counts: { matched: number; missing: number; total: number };
   }>(null);
 
-  async function checkCoverage() {
-    const pid = Number(pantryIdInput);
-    if (!Number.isFinite(pid) || pid <= 0) return alert("Enter a valid pantry id");
-    setChecking(true);
-    try {
-      const res = await fetch(`/api/match?pantryId=${pid}&recipeId=${recipeId}`, { cache: "no-store" });
-      if (!res.ok) throw new Error("Match failed");
-      const json = await res.json();
-      setCoverage(json.result);
-    } catch (e) {
-      alert((e as Error).message);
-    } finally {
-      setChecking(false);
-    }
+async function checkCoverage() {
+  const pid = Number(pantryIdInput);
+  if (!Number.isFinite(pid) || pid <= 0) return alert("Enter a valid pantry id");
+  setChecking(true);
+  try {
+    const res = await fetch(`/api/cook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pantryId: pid, recipeId, deduct: false }),
+    });
+    if (!res.ok) throw new Error("Coverage failed");
+    const json = await res.json();
+    setCoverage({
+      coverage: json.coverage,
+      matched: json.matched.map((m: any) => m.ingredient),
+      missing: json.missing,
+      counts: json.summary,
+    });
+  } catch (e) {
+    alert((e as Error).message);
+  } finally {
+    setChecking(false);
   }
+}
+
 
   const [cooking, setCooking] = useState(false);
   const [cookResult, setCookResult] = useState<null | {

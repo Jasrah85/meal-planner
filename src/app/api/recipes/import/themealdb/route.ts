@@ -3,48 +3,42 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-// naive parser: try to split a measurement like "1 1/2 cup" -> qty 1.5, unit "cup"
-function parseMeasure(measure?: string): { qty: number | null; unit: string | null } {
-  if (!measure) return { qty: null, unit: null };
-  const m = measure.trim();
-  // match mixed fractions "1 1/2", simple "1/2", or decimal "0.5"
-  const frac = /^(\d+)\s+(\d+)\/(\d+)\b/i.exec(m);
-  const simpleFrac = /^(\d+)\/(\d+)\b/i.exec(m);
-  const decimal = /^(\d+(?:\.\d+)?)\b/i.exec(m);
-
-  if (frac) {
-    const qty = parseInt(frac[1]) + parseInt(frac[2]) / parseInt(frac[3]);
-    return { qty, unit: m.slice(frac[0].length).trim() || null };
-  }
-  if (simpleFrac) {
-    const qty = parseInt(simpleFrac[1]) / parseInt(simpleFrac[2]);
-    return { qty, unit: m.slice(simpleFrac[0].length).trim() || null };
-  }
-  if (decimal) {
-    const qty = parseFloat(decimal[1]);
-    return { qty, unit: m.slice(decimal[0].length).trim() || null };
-  }
-  return { qty: null, unit: m }; // fallback: keep entire measure as unit
+export async function HEAD() {
+  return NextResponse.json(null, { status: 200 });
 }
 
+/** Minimal MealDB typings */
 type MealDBMeal = {
   idMeal: string;
   strMeal: string;
   strCategory: string | null;
   strArea: string | null;
   strInstructions: string | null;
-  strTags: string | null;             // comma-separated
+  strTags: string | null; // comma-separated
   strSource: string | null;
-  // strMeasure1..20 / strIngredient1..20
   [k: `strIngredient${number}`]: string | null | undefined;
   [k: `strMeasure${number}`]: string | null | undefined;
 };
 
-function pickIngredients(m: MealDBMeal) {
+// parse a measurement like "1 1/2 cup" → qty 1.5, unit "cup"
+function parseMeasure(measure?: string): { qty: number | null; unit: string | null } {
+  if (!measure) return { qty: null, unit: null };
+  const m = measure.trim();
+  const frac = /^(\d+)\s+(\d+)\/(\d+)\b/i.exec(m);
+  const simpleFrac = /^(\d+)\/(\d+)\b/i.exec(m);
+  const decimal = /^(\d+(?:\.\d+)?)\b/i.exec(m);
+
+  if (frac) return { qty: parseInt(frac[1]) + parseInt(frac[2]) / parseInt(frac[3]), unit: m.slice(frac[0].length).trim() || null };
+  if (simpleFrac) return { qty: parseInt(simpleFrac[1]) / parseInt(simpleFrac[2]), unit: m.slice(simpleFrac[0].length).trim() || null };
+  if (decimal) return { qty: parseFloat(decimal[1]), unit: m.slice(decimal[0].length).trim() || null };
+  return { qty: null, unit: m }; // fallback: keep entire measure as unit
+}
+
+function pickIngredients(meal: MealDBMeal) {
   const ings: { name: string; qty: number | null; unit: string | null }[] = [];
   for (let i = 1; i <= 20; i++) {
-    const name = (m[`strIngredient${i}`] || "").trim();
-    const measure = (m[`strMeasure${i}`] || "").trim();
+    const name = (meal[`strIngredient${i}`] || "").trim();
+    const measure = (meal[`strMeasure${i}`] || "").trim();
     if (!name) continue;
     const { qty, unit } = parseMeasure(measure || undefined);
     ings.push({ name, qty, unit });
@@ -53,117 +47,104 @@ function pickIngredients(m: MealDBMeal) {
 }
 
 /**
- * GET /api/recipes/import/themealdb?q=chicken&limit=5&import=true
- *   q: search string (uses TheMealDB search)
- *   limit: optional cap
- *   import: if "true" persist to DB; otherwise just preview JSON
- *
- * GET /api/recipes/import/themealdb?id=52771&import=true
- *   id: import a single recipe by idMeal
+ * POST /api/recipes/import/themealdb
+ * body: { idMeal: string }
+ * - Imports a single recipe by id (no auto-import on GET anymore)
+ * - If already imported, returns the existing one
+ */
+export async function POST(req: NextRequest) {
+  const { idMeal } = (await req.json().catch(() => ({}))) as { idMeal?: string };
+  if (!idMeal) return NextResponse.json({ error: "idMeal required" }, { status: 400 });
+
+  const extTag = `ext:mealdb:${idMeal}`;
+
+  // already imported?
+  const existingTag = await prisma.recipeTag.findFirst({ where: { value: extTag } });
+  if (existingTag) {
+    const recipe = await prisma.recipe.findUnique({
+      where: { id: existingTag.recipeId },
+      include: { tags: true, ingredients: { include: { barcode: true, itemMatch: true }, orderBy: { id: "asc" } } },
+    });
+    return NextResponse.json({ recipe: recipe ? { ...recipe, tags: recipe.tags.map(t => t.value) } : null });
+  }
+
+  // lookup details
+  const r = await fetch(`https://www.themealdb.com/api/json/v1/1/lookup.php?i=${encodeURIComponent(idMeal)}`, { cache: "no-store" });
+  if (!r.ok) return NextResponse.json({ error: `lookup failed ${r.status}` }, { status: 502 });
+  const data = (await r.json()) as { meals?: MealDBMeal[] };
+  const meal = data?.meals?.[0];
+  if (!meal) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  const title = String(meal.strMeal ?? "").trim() || "Untitled";
+  const sourceUrl = meal.strSource || null;
+  const category = meal.strCategory?.trim() || null;
+  const area = meal.strArea?.trim() || null;
+  const tags = (meal.strTags ? meal.strTags.split(",").map(s => s.trim()).filter(Boolean) : []) as string[];
+  const ings = pickIngredients(meal);
+
+  const created = await prisma.recipe.create({
+    data: {
+      title,
+      sourceType: "API:MEALDB",
+      sourceUrl,
+      tags: {
+        createMany: {
+          data: [
+            { value: extTag },
+            ...(category ? [{ value: `category:${category}` }] : []),
+            ...(area ? [{ value: `area:${area}` }] : []),
+            ...tags.map(v => ({ value: v })),
+          ],
+        },
+      },
+      ingredients: { createMany: { data: ings.map(i => ({ name: i.name, qty: i.qty, unit: i.unit })) } },
+    },
+    include: { tags: true, ingredients: true },
+  });
+
+  return NextResponse.json({ recipe: { ...created, tags: created.tags.map(t => t.value) } });
+}
+
+/**
+ * DELETE /api/recipes/import/themealdb?idMeal=xxxxx
+ * - Removes the imported recipe that corresponds to this external id
+ */
+export async function DELETE(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const idMeal = searchParams.get("idMeal");
+  if (!idMeal) return NextResponse.json({ error: "idMeal required" }, { status: 400 });
+
+  const extTag = `ext:mealdb:${idMeal}`;
+  const tag = await prisma.recipeTag.findFirst({ where: { value: extTag } });
+  if (!tag) return NextResponse.json({ ok: true, deleted: 0 });
+
+  await prisma.recipe.delete({ where: { id: tag.recipeId } });
+  return NextResponse.json({ ok: true, deleted: 1 });
+}
+
+/**
+ * (Optional preview) GET ?id=xxxxx
+ * - Returns a normalized preview without saving
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q")?.trim();
-  const id = searchParams.get("id")?.trim();
-  const limit = Number(searchParams.get("limit") || "0") || undefined;
-  const doImport = searchParams.get("import") === "true";
+  const id = searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "Provide ?id=mealId" }, { status: 400 });
 
-  let url: string;
-  if (id) {
-    url = `https://www.themealdb.com/api/json/v1/1/lookup.php?i=${encodeURIComponent(id)}`;
-  } else if (q) {
-    url = `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(q)}`;
-  } else {
-    return NextResponse.json({ error: "Provide ?q=search or ?id=mealId" }, { status: 400 });
-  }
+  const r = await fetch(`https://www.themealdb.com/api/json/v1/1/lookup.php?i=${encodeURIComponent(id)}`, { cache: "no-store" });
+  if (!r.ok) return NextResponse.json({ error: `lookup failed ${r.status}` }, { status: 502 });
+  const data = (await r.json()) as { meals?: MealDBMeal[] };
+  const meal = data?.meals?.[0];
+  if (!meal) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const resp = await fetch(url, { cache: "no-store" });
-  if (!resp.ok) return NextResponse.json({ error: `fetch failed ${resp.status}` }, { status: 502 });
-  const json = await resp.json();
-  const meals: MealDBMeal[] = json?.meals ?? [];
-
-  const trimmed = typeof limit === "number" ? meals.slice(0, limit) : meals;
-
-  // Build normalized recipe shapes
-  const normalized = trimmed.map((m) => {
-    const tags = (m.strTags || "")
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
-
-    return {
-      externalId: m.idMeal,
-      title: m.strMeal,
+  return NextResponse.json({
+    preview: {
+      idMeal: meal.idMeal,
+      title: meal.strMeal,
       sourceType: "API:MEALDB",
-      sourceUrl: m.strSource || null,
-      servings: null as number | null,
-      notes: null as string | null,
-      steps: m.strInstructions || null,
-      tags,
-      ingredients: pickIngredients(m),
-    };
+      sourceUrl: meal.strSource || null,
+      tags: (meal.strTags ? meal.strTags.split(",").map(s => s.trim()).filter(Boolean) : []),
+      ingredients: pickIngredients(meal),
+    },
   });
-
-  if (!doImport) {
-    return NextResponse.json({ preview: normalized, count: normalized.length });
-  }
-
-  // Persist to DB (basic de-dupe: title + sourceUrl)
-  const createdIds: number[] = [];
-  for (const r of normalized) {
-    const existing = await prisma.recipe.findFirst({
-      where: {
-        title: r.title,
-        OR: [{ sourceUrl: r.sourceUrl }, { sourceUrl: null }],
-      },
-      select: { id: true },
-    });
-
-    if (existing) {
-      // replace tags/ingredients on existing
-      await prisma.recipe.update({
-        where: { id: existing.id },
-        data: {
-          sourceType: r.sourceType,
-          steps: r.steps,
-          tags: {
-            deleteMany: {},
-            create: r.tags.map((value) => ({ value })),
-          },
-          ingredients: {
-            deleteMany: {},
-            create: r.ingredients.map((ing) => ({
-              name: ing.name,
-              qty: ing.qty,
-              unit: ing.unit,
-            })),
-          },
-        },
-      });
-      createdIds.push(existing.id);
-    } else {
-      const rec = await prisma.recipe.create({
-        data: {
-          title: r.title,
-          sourceType: r.sourceType,
-          sourceUrl: r.sourceUrl,
-          servings: r.servings,
-          notes: r.notes,
-          steps: r.steps,
-          tags: { create: r.tags.map((value) => ({ value })) },
-          ingredients: {
-            create: r.ingredients.map((ing) => ({
-              name: ing.name,
-              qty: ing.qty,
-              unit: ing.unit,
-            })),
-          },
-        },
-        select: { id: true },
-      });
-      createdIds.push(rec.id);
-    }
-  }
-
-  return NextResponse.json({ ok: true, imported: createdIds.length, ids: createdIds });
 }
