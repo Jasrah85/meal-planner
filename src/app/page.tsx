@@ -70,8 +70,10 @@ export default async function Home() {
               <div className="flex gap-2">
                 <Link className="underline text-sm" href={`/p/${p.id}`}>Overview</Link>
                 <Link className="underline text-sm" href={`/p/${p.id}/items`}>Items</Link>
+                <Link className="underline text-sm" href={`/p/${p.id}/saved`}>Saved</Link>
                 <Link className="underline text-sm" href={`/p/${p.id}/scan`}>Scan</Link>
               </div>
+
             </Card>
           ))}
           {pantries.length === 0 && (
