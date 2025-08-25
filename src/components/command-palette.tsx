@@ -1,29 +1,45 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type CmdItem = { label: string; href: string; group?: string };
 
 type ApiRecipe = { id: number | string; title: string };
+
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 function coerceRecipe(v: unknown): ApiRecipe | null {
   if (!isObject(v)) return null;
-  const { id, title } = v as { id?: unknown; title?: unknown };
+  const id = (v as Record<string, unknown>).id;
+  const title = (v as Record<string, unknown>).title;
   const idOk = typeof id === "number" || typeof id === "string";
-  if (idOk && typeof title === "string") return { id: id as number | string, title };
+  if (idOk && typeof title === "string") {
+    return { id: id as number | string, title };
+  }
   return null;
 }
+
+type RecipesArray = Array<unknown>;
+type RecipesEnvelope = { recipes?: unknown };
 
 async function fetchQuickRecipes(): Promise<Array<{ id: number; title: string }>> {
   try {
     const res = await fetch("/api/recipes?limit=50", { cache: "no-store" });
     if (!res.ok) return [];
     const data: unknown = await res.json();
-    const maybeList: unknown = Array.isArray(data) ? data : (isObject(data) ? (data as any).recipes : []); // safe narrowing
-    const list = Array.isArray(maybeList) ? maybeList : [];
+
+    // Safely derive the list: either top-level array or { recipes: [...] }
+    let rawList: unknown = [];
+    if (Array.isArray(data)) {
+      rawList = data as RecipesArray;
+    } else if (isObject(data)) {
+      const maybe = (data as RecipesEnvelope).recipes;
+      if (Array.isArray(maybe)) rawList = maybe as RecipesArray;
+    }
+
+    const list = Array.isArray(rawList) ? rawList : [];
     return list
       .map(coerceRecipe)
       .filter((r): r is ApiRecipe => r !== null)
@@ -41,9 +57,11 @@ function fuzzyScore(query: string, target: string): number {
 
   const idx = t.indexOf(q);
   if (idx !== -1) {
+    // Earlier match + closer length is better
     return 1000 + Math.max(0, 200 - idx) + Math.max(0, 100 - Math.abs(t.length - q.length));
   }
 
+  // Subsequence match
   let qi = 0, ti = 0, runs = 0, lastMatch = -2;
   while (qi < q.length && ti < t.length) {
     if (t[ti] === q[qi]) {
@@ -61,8 +79,14 @@ function fuzzyScore(query: string, target: string): number {
 export function CommandPalette(props: { open?: boolean; onClose?: () => void }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = props.open ?? internalOpen;
-  const close = props.onClose ?? (() => setInternalOpen(false));
-  const openSelf = () => setInternalOpen(true);
+
+  // Memoize close to avoid changing deps every render
+  const close = useCallback(() => {
+    if (props.onClose) props.onClose();
+    else setInternalOpen(false);
+  }, [props.onClose]);
+
+  const openSelf = useCallback(() => setInternalOpen(true), []);
 
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -71,20 +95,21 @@ export function CommandPalette(props: { open?: boolean; onClose?: () => void }) 
   const [activeIndex, setActiveIndex] = useState(0);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
-  // Hotkey: ⌘K / Ctrl+K to open, Esc to close when open
+  // Hotkey: ⌘K / Ctrl+K to open; Esc to close when open
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) {
+      const key = e.key.toLowerCase();
+      if (key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         openSelf();
-      } else if (e.key === "Escape" && isOpen) {
+      } else if (key === "escape" && isOpen) {
         e.preventDefault();
         close();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isOpen, close]);
+  }, [isOpen, openSelf, close]);
 
   // Focus & load recipes on open
   useEffect(() => {
@@ -126,21 +151,23 @@ export function CommandPalette(props: { open?: boolean; onClose?: () => void }) 
       .map((x) => x.it);
   }, [q, base]);
 
+  // Keep activeIndex within range as the list changes
   useEffect(() => {
     if (activeIndex >= filtered.length) setActiveIndex(Math.max(0, filtered.length - 1));
   }, [filtered.length, activeIndex]);
 
+  // Scroll active item into view
   useEffect(() => {
     const el = itemRefs.current[activeIndex];
     el?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
-  function go(href: string) {
+  const go = useCallback((href: string) => {
     close();
     router.push(href);
-  }
+  }, [close, router]);
 
-  function onListKeyDown(e: React.KeyboardEvent) {
+  const onListKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       e.preventDefault();
       close();
@@ -161,17 +188,19 @@ export function CommandPalette(props: { open?: boolean; onClose?: () => void }) 
       const cur = filtered[activeIndex];
       if (cur) go(cur.href);
     }
-  }
+  }, [filtered, activeIndex, go, close]);
 
   if (!isOpen) return null;
 
+  // Group items
   const grouped = filtered.reduce<Record<string, CmdItem[]>>((acc, item) => {
     const g = item.group ?? "Other";
     (acc[g] ||= []).push(item);
     return acc;
   }, {});
 
-  const flatIndexFor = (group: string, href: string, idxInGroup: number) => {
+  // Compute flat index across groups for active highlighting
+  const flatIndexFor = (group: string, idxInGroup: number) => {
     let idx = 0;
     for (const [g, items] of Object.entries(grouped)) {
       if (g === group) {
@@ -210,7 +239,7 @@ export function CommandPalette(props: { open?: boolean; onClose?: () => void }) 
                   </div>
                   <ul>
                     {items.map((i, localIdx) => {
-                      const flatIdx = flatIndexFor(group, i.href, localIdx);
+                      const flatIdx = flatIndexFor(group, localIdx);
                       const isActive = flatIdx === activeIndex;
                       return (
                         <li key={`${group}-${i.href}`}>
