@@ -50,3 +50,8 @@ html, body, :root {
     display: block !important; /* If you opt into a slide-over later */
   }
 }
+
+/* Prevent scroll jump when the drawer is open on iOS */
+html[data-sidebar-open="true"] {
+  overscroll-behavior: contain;
+}
