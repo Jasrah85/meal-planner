@@ -21,7 +21,7 @@ type RecipeDetail = {
   id: number;
   title: string;
   servings: number | null;
-  notes: string | null;
+  notes: string | null; // description
   steps: string | null;
   tags: string[];
   ingredients: IngredientRow[];
@@ -46,12 +46,8 @@ async function fetchRecipe(id: number) {
 /* ------------------------------ Tag Chips ------------------------------ */
 
 function tokenizeTags(s: string): string[] {
-  return s
-    .split(",")
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
+  return s.split(",").map((t) => t.trim()).filter(Boolean);
 }
-
 function uniqueCaseFold(list: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -82,7 +78,6 @@ function TagChips({
     setDraft("");
     onChange(tokens);
   }
-
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
@@ -91,7 +86,6 @@ function TagChips({
       onChange(value.slice(0, -1));
     }
   }
-
   function removeAt(i: number) {
     const next = value.slice();
     next.splice(i, 1);
@@ -132,7 +126,6 @@ function TagChips({
 function normalizeLines(s: string): string[] {
   return s.replace(/\r\n?/g, "\n").split("\n");
 }
-
 function toNumbered(lines: string[]): string[] {
   let n = 1;
   return lines.map((ln) => {
@@ -140,14 +133,12 @@ function toNumbered(lines: string[]): string[] {
     return txt.trim() ? `${n++}. ${txt}` : "";
   });
 }
-
 function toBulleted(lines: string[]): string[] {
   return lines.map((ln) => {
     const txt = ln.replace(/^\s*\d+\.\s+/, "").replace(/^\s*[-*]\s+/, "");
     return txt.trim() ? `- ${txt}` : "";
   });
 }
-
 function insertTemplate(): string {
   return [
     "1. Preheat oven to 375°F (190°C).",
@@ -157,6 +148,15 @@ function insertTemplate(): string {
     "- Stuff shells …",
     "- Bake 20–25 minutes …",
   ].join("\n");
+}
+
+/* --------------------------- Ingredients UI ---------------------------- */
+
+function formatIngredient(r: IngredientRow): string {
+  const qty = r.qty ?? "";
+  const unit = r.unit ?? "";
+  const name = r.name ?? "";
+  return [qty, unit, name].map(String).filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -177,14 +177,17 @@ export default function RecipeDetailPage({
 
   // local edit state
   const [title, setTitle] = useState<string>("");
+  const [notes, setNotes] = useState<string>(""); // description
   const [tagList, setTagList] = useState<string[]>([]);
   const [steps, setSteps] = useState<string>("");
   const [rows, setRows] = useState<IngredientRow[]>([]);
+  const [editingIngredients, setEditingIngredients] = useState(false);
 
   // initialize when data arrives
   useEffect(() => {
     if (!data) return;
     setTitle(data.title);
+    setNotes(data.notes ?? "");         // keep imported description intact
     setTagList(uniqueCaseFold(data.tags));
     setSteps(data.steps ?? "");
     setRows(data.ingredients);
@@ -194,6 +197,7 @@ export default function RecipeDetailPage({
     mutationFn: async () => {
       const payload = {
         title: title.trim(),
+        notes: notes.trim(),                 // include description so it is not wiped
         steps,
         tags: tagList,
         ingredients: rows.map((r) => ({
@@ -290,13 +294,12 @@ export default function RecipeDetailPage({
     }
   }
 
-  // derived UI bits
   const coveragePct = useMemo(
     () => (coverage ? Math.round(coverage.coverage * 100) : 0),
     [coverage]
   );
 
-  // ----- guards so `data` is never possibly undefined -----
+  // guards
   if (isLoading) return <div>Loading…</div>;
   if (error) return <div className="text-red-600">Failed to load recipe.</div>;
   if (!data)
@@ -308,7 +311,6 @@ export default function RecipeDetailPage({
         </Link>
       </div>
     );
-  // from here on, `data` is RecipeDetail
 
   return (
     <div className="relative space-y-6">
@@ -319,7 +321,7 @@ export default function RecipeDetailPage({
           <span className="text-xs text-gray-500">ID: {data.id}</span>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+        <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
           <div className="space-y-1">
             <label className="text-xs font-medium">Title</label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -330,15 +332,26 @@ export default function RecipeDetailPage({
               type="number"
               placeholder="e.g. 4"
               value={data.servings ?? ""}
-              onChange={() => {/* reserved for future editing */}}
+              onChange={() => {}}
               disabled
             />
           </div>
         </div>
 
-        <div className="space-y-1">
-          <label className="text-xs font-medium">Tags</label>
-          <TagChips value={tagList} onChange={setTagList} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-xs font-medium">Description</label>
+            <textarea
+              className="w-full rounded-md border p-2 text-sm min-h-[88px]"
+              placeholder="Short description / notes from source"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-xs font-medium">Tags</label>
+            <TagChips value={tagList} onChange={setTagList} />
+          </div>
         </div>
       </div>
 
@@ -352,7 +365,11 @@ export default function RecipeDetailPage({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setSteps((s) => (s.trim() ? toNumbered(normalizeLines(s)).join("\n") : insertTemplate()))}
+                onClick={() =>
+                  setSteps((s) =>
+                    s.trim() ? toNumbered(normalizeLines(s)).join("\n") : insertTemplate()
+                  )
+                }
                 title="Insert template or convert to numbered"
               >
                 Template / 1.
@@ -371,10 +388,10 @@ export default function RecipeDetailPage({
             className="w-full rounded-md border p-2 text-sm min-h-[320px] leading-6"
             value={steps}
             onChange={(e) => setSteps(e.target.value)}
-            placeholder={"1. Preheat oven…\n2. Mix filling…\n- Tip: you can paste any text, then use the buttons to format."}
+            placeholder={"1. Preheat oven…\n2. Mix filling…\n- Tip: paste any text, then use the buttons to format."}
           />
           <p className="text-xs text-gray-500">
-            Tip: Paste lines and click <b>Template / 1.</b> for a quick numbered list, or <b>• Bullets</b>.
+            Tip: Paste lines and click <b>Template / 1.</b> for a numbered list, or <b>• Bullets</b>.
           </p>
         </section>
 
@@ -382,51 +399,88 @@ export default function RecipeDetailPage({
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-medium">Ingredients</h2>
-            <Button variant="outline" size="sm" onClick={addRow}>
-              Add ingredient
-            </Button>
-          </div>
-
-          <div className="rounded-md border">
-            <div className="grid grid-cols-[1fr,90px,90px,40px] items-center gap-2 border-b px-3 py-2 text-xs text-gray-600">
-              <div>Name</div>
-              <div>Qty</div>
-              <div>Unit</div>
-              <div />
-            </div>
-            <div className="divide-y">
-              {rows.map((r, idx) => (
-                <div key={`${r.id}-${idx}`} className="grid grid-cols-[1fr,90px,90px,40px] items-center gap-2 px-3 py-2">
-                  <Input
-                    placeholder="e.g. Olive Oil"
-                    value={r.name}
-                    onChange={(e) => updateRow(idx, { name: e.target.value })}
-                  />
-                  <Input
-                    type="number"
-                    placeholder="e.g. 3"
-                    value={r.qty ?? ""}
-                    onChange={(e) =>
-                      updateRow(idx, { qty: e.target.value === "" ? null : Number(e.target.value) })
-                    }
-                  />
-                  <Input
-                    placeholder="e.g. tbsp"
-                    value={r.unit ?? ""}
-                    onChange={(e) => updateRow(idx, { unit: e.target.value || null })}
-                  />
-                  <Button variant="ghost" onClick={() => removeRow(idx)} aria-label="Remove row">
-                    🗑️
+            <div className="flex items-center gap-2">
+              {!editingIngredients ? (
+                <Button variant="outline" size="sm" onClick={() => setEditingIngredients(true)}>
+                  Edit
+                </Button>
+              ) : (
+                <>
+                  <Button variant="outline" size="sm" onClick={addRow}>
+                    Add row
                   </Button>
-                </div>
-              ))}
-              {rows.length === 0 && (
-                <div className="px-3 py-4 text-sm text-gray-500">
-                  No ingredients yet. Click <b>Add ingredient</b> to begin.
-                </div>
+                  <Button size="sm" onClick={() => setEditingIngredients(false)}>
+                    Done
+                  </Button>
+                </>
               )}
             </div>
           </div>
+
+          {/* READ MODE */}
+          {!editingIngredients && (
+            <div className="rounded-md border p-3">
+              {rows.length === 0 ? (
+                <div className="text-sm text-gray-500">No ingredients yet.</div>
+              ) : (
+                <ul className="space-y-1 text-sm">
+                  {rows.map((r, idx) => (
+                    <li
+                      key={`${r.id}-${idx}`}
+                      className="cursor-pointer rounded px-2 py-1 hover:bg-gray-50"
+                      title="Click to edit"
+                      onClick={() => setEditingIngredients(true)}
+                    >
+                      {formatIngredient(r)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-2 text-xs text-gray-500">Click any line to edit.</div>
+            </div>
+          )}
+
+          {/* EDIT MODE */}
+          {editingIngredients && (
+            <div className="rounded-md border">
+              <div className="grid grid-cols-[1fr_90px_90px_40px] items-center gap-2 border-b px-3 py-2 text-xs text-gray-600">
+                <div>Name</div>
+                <div>Qty</div>
+                <div>Unit</div>
+                <div />
+              </div>
+              <div className="divide-y">
+                {rows.map((r, idx) => (
+                  <div key={`${r.id}-${idx}`} className="grid grid-cols-[1fr_90px_90px_40px] items-center gap-2 px-3 py-2">
+                    <Input
+                      placeholder="e.g. Olive Oil"
+                      value={r.name}
+                      onChange={(e) => updateRow(idx, { name: e.target.value })}
+                    />
+                    <Input
+                      type="number"
+                      placeholder="e.g. 3"
+                      value={r.qty ?? ""}
+                      onChange={(e) =>
+                        updateRow(idx, { qty: e.target.value === "" ? null : Number(e.target.value) })
+                      }
+                    />
+                    <Input
+                      placeholder="e.g. tbsp"
+                      value={r.unit ?? ""}
+                      onChange={(e) => updateRow(idx, { unit: e.target.value || null })}
+                    />
+                    <Button variant="ghost" onClick={() => removeRow(idx)} aria-label="Remove row">
+                      🗑️
+                    </Button>
+                  </div>
+                ))}
+                {rows.length === 0 && (
+                  <div className="px-3 py-4 text-sm text-gray-500">No rows. Click “Add row”.</div>
+                )}
+              </div>
+            </div>
+          )}
         </section>
       </div>
 
