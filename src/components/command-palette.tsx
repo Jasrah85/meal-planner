@@ -4,15 +4,40 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type CmdItem = { label: string; href: string; group?: string };
+type ApiRecipe = { id: number | string; title: string };
+
+// Narrowing helpers (no `any`)
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+function coerceRecipe(v: unknown): ApiRecipe | null {
+  if (!isObject(v)) return null;
+  const id = v.id;
+  const title = v.title;
+  if ((typeof id === "number" || typeof id === "string") && typeof title === "string") {
+    return { id, title };
+  }
+  return null;
+}
 
 async function fetchQuickRecipes(): Promise<Array<{ id: number; title: string }>> {
   try {
     const res = await fetch("/api/recipes?limit=25", { cache: "no-store" });
     if (!res.ok) return [];
-    const json = await res.json();
-    // Accept either {recipes:[...]} or raw array (be liberal)
-    const list = Array.isArray(json) ? json : json.recipes ?? [];
-    return list.map((r: any) => ({ id: Number(r.id), title: String(r.title) }));
+    const data: unknown = await res.json();
+
+    // Accept either an array or { recipes: [...] }
+    const maybeList: unknown =
+      Array.isArray(data) ? data : (isObject(data) ? data.recipes : []);
+    const list = Array.isArray(maybeList) ? maybeList : [];
+
+    // Safely coerce and filter
+    const coerced = list
+      .map(coerceRecipe)
+      .filter((r): r is ApiRecipe => r !== null)
+      .map((r) => ({ id: Number(r.id), title: r.title }));
+
+    return coerced;
   } catch {
     return [];
   }
@@ -28,12 +53,11 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     if (open) {
       setQ("");
       inputRef.current?.focus();
-      // lazy load once
       if (!recipes.length) {
         fetchQuickRecipes().then(setRecipes);
       }
     }
-  }, [open]); // eslint-disable-line
+  }, [open]); // intentionally not depending on `recipes`
 
   const base: CmdItem[] = useMemo(
     () => [
@@ -43,7 +67,6 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       { label: "Shopping List", href: "/shopping", group: "Navigation" },
       { label: "Scan Item", href: "/scan", group: "Navigation" },
       { label: "Settings", href: "/settings", group: "Navigation" },
-      // Pantries hub if you add it (see section 3)
       { label: "Pantries", href: "/p", group: "Navigation" },
       ...recipes.map((r) => ({
         label: `Recipe: ${r.title}`,
