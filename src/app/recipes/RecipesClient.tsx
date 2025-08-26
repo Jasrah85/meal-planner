@@ -70,14 +70,18 @@ async function fetchCombinedBrowse(
   page: number,
   pageSize: number
 ): Promise<CombinedBrowseResponse> {
-  // Try your “random feed” hint first; if backend doesn’t support it
-  // or returns nothing, fall back to a popular query.
   const base = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+
+  // BEFORE:
+  // let r = await fetch(urlRandom, { cache: "no-store" });
+
   const urlRandom = `/api/recipes/browse?${q.trim() ? `q=${encodeURIComponent(q)}&` : "random=1&"}${base}`;
-  let r = await fetch(urlRandom, { cache: "no-store" });
+  const r = await fetch(urlRandom, { cache: "no-store" }); // <-- const
   if (!r.ok) throw new Error("Browse failed");
+
   let data = (await r.json()) as CombinedBrowseResponse;
 
+  // Fallback to a popular query if random returns empty
   if (!q.trim() && (!data.items || data.items.length === 0)) {
     const fallbacks = ["chicken", "pasta", "beef", "salad", "soup"];
     const pick = fallbacks[(page - 1) % fallbacks.length];
@@ -85,8 +89,10 @@ async function fetchCombinedBrowse(
     const r2 = await fetch(urlFallback, { cache: "no-store" });
     if (r2.ok) data = (await r2.json()) as CombinedBrowseResponse;
   }
+
   return data;
 }
+
 
 async function fetchByTagId(tag: string): Promise<number | null> {
   const res = await fetch(`/api/recipes/by-tag?tag=${encodeURIComponent(tag)}`, { cache: "no-store" });
