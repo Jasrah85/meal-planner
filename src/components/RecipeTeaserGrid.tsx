@@ -43,14 +43,14 @@ export default function RecipeTeaserGrid({ initial }: { initial: RecipeTeaser[] 
         <button
           onClick={() => shuffle()}
           disabled={isPending}
-          className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+          className="btn"
         >
           {isPending ? "Shuffling…" : "Shuffle"}
         </button>
         <button
           onClick={() => loadMore(9)}
           disabled={isPending}
-          className="rounded-xl bg-gray-900 text-white px-4 py-2 text-sm hover:bg-black disabled:opacity-50"
+          className="btn btn-primary"
         >
           {isPending ? "Loading…" : "Load more"}
         </button>
@@ -58,18 +58,30 @@ export default function RecipeTeaserGrid({ initial }: { initial: RecipeTeaser[] 
 
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {recipes.map((r) => (
-          <li key={r.id}>
-            <Card className="p-4 flex items-center justify-between">
-              <div>
-                <div className="font-medium line-clamp-2">{r.title}</div>
-                <div className="text-xs text-gray-500">
-                  {(r._count?.ingredients ?? 0)} ingredients
-                  {r.sourceType ? ` • ${r.sourceType}` : ""}
+            <li key={r.id} className="group">
+            <div className="card card-hover p-4">
+                <div className="relative mb-3 aspect-[4/3] w-full overflow-hidden rounded-xl bg-gray-100">
+                {/* If you use next/image, slot it here with fill */}
+                {/* <Image … className="object-cover transition-transform duration-200 group-hover:scale-[1.02]" /> */}
                 </div>
-              </div>
-              <Link className="underline text-sm" href={`/recipes/${r.id}`}>Open</Link>
-            </Card>
-          </li>
+
+                <h3 className="text-base font-semibold leading-tight line-clamp-2">{r.title}</h3>
+                <div className="mt-1 text-xs text-gray-500 flex items-center gap-2">
+                {(r._count?.ingredients ?? 0)} ingredients
+                {r.sourceType && <span className="inline-block h-1 w-1 rounded-full bg-gray-300" />}
+                {r.sourceType && <span>API:{r.sourceType}</span>}
+                </div>
+
+                <div className="mt-3">
+                <Link href={`/recipes/${r.id}`} className="inline-flex items-center gap-1 text-sm font-medium hover:underline">
+                    Open
+                    <svg width="14" height="14" viewBox="0 0 24 24" className="opacity-70">
+                    <path d="M7 17L17 7M17 7H8M17 7v9" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round"/>
+                    </svg>
+                </Link>
+                </div>
+            </div>
+            </li>
         ))}
       </ul>
     </div>

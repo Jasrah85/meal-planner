@@ -67,28 +67,28 @@ export default async function Home() {
     <div className="space-y-8">
       {/* Header */}
       <section>
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Pantry Planner</h1>
-            <p className="text-sm text-gray-500">
+            <p className="section-subtitle">
               Quick picks from your saved recipes. Shuffle or load more anytime.
             </p>
           </div>
-          <div className="flex gap-2">{/* future quick actions */}</div>
+          <div className="flex gap-2">
+            {/* reserved for quick actions */}
+          </div>
         </div>
       </section>
 
       {/* Pantries */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-medium">Your Pantries</h2>
-          <Link href="/settings" className="underline text-sm">
-            Manage pantries
-          </Link>
+          <h2 className="section-title">Your Pantries</h2>
+          <Link href="/settings" className="link-muted text-sm">Manage pantries</Link>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {pantries.map((p) => (
-            <Card key={p.id} className="p-4 flex items-center justify-between">
+            <Card key={p.id} className="card p-4 card-hover flex items-center justify-between">
               <div>
                 <div className="font-medium">{p.name}</div>
                 <div className="text-xs text-gray-500">ID: {p.id}</div>
@@ -111,7 +111,7 @@ export default async function Home() {
           ))}
 
           {pantries.length === 0 && (
-            <Card className="p-4">
+            <Card className="card p-4 card-hover flex items-center justify-between">
               <div className="text-sm">
                 No pantries yet. Go to{" "}
                 <Link className="underline" href="/settings">
@@ -127,14 +127,10 @@ export default async function Home() {
       {/* Recipes */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-medium">Recipes</h2>
+          <h2 className="section-title">Recipes</h2>
           <div className="flex items-center gap-3">
-            <Link href="/recipes" className="underline text-sm">
-              All recipes
-            </Link>
-            <Link href="/recipes/new" className="underline text-sm">
-              New recipe
-            </Link>
+            <Link href="/recipes" className="link-muted text-sm">All recipes</Link>
+            <Link href="/recipes/new" className="link-muted text-sm">New recipe</Link>
           </div>
         </div>
 
