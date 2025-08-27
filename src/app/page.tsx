@@ -46,9 +46,9 @@ async function getInitialTeasers(limit = 12): Promise<RecipeTeaser[]> {
 }
 
 export default async function Home() {
-  // Ensure demo user exists
+  // Ensure demo user exists  ✅ remove "as any"
   const demo = await prisma.user.upsert({
-    where: { email: "demo@panry.local" as any }, // keep your original if needed
+    where: { email: "demo@pantry.local" },
     update: {},
     create: { email: "demo@pantry.local", name: "Demo User" },
   });
