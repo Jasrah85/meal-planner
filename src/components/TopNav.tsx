@@ -45,7 +45,7 @@ export function TopNav() {
         Skip to content
       </a>
 
-      <header className="sticky top-0 z-40 border-b border-zinc-200/70 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/40 dark:border-zinc-800/60 dark:bg-zinc-900/60">
+      <header className="sticky top-0 z-40 border-b border-zinc-200/60 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/40 dark:border-zinc-800/50 dark:bg-zinc-900/60">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-2 px-3 sm:px-4">
           {/* Mobile menu button */}
           <button

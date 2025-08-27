@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="container-gutter mx-auto max-w-6xl">
             <div className="grid grid-cols-1 lg:grid-cols-[256px_1fr] gap-0">
               <Sidebar />
-              <main id="page-content" className="p-4">
+              <main id="page-content" className="p-4 sm:p-6">
                 {children}
               </main>
             </div>

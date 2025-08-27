@@ -2,6 +2,8 @@
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+import Image from "next/image";
+import { Card } from "@/components/ui/card";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -367,32 +369,57 @@ export default function RecipesClient({ initialLibrary }: { initialLibrary: Reci
           <div className="text-sm text-gray-500">Loading…</div>
         ) : (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {browse.data?.items?.map((card: ClientBrowseCard) => (
-                <div key={card.key} className="border rounded-md p-2 space-y-2">
-                  {card.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={card.image} alt={card.title} className="w-full h-32 object-cover rounded" />
-                  ) : null}
-                  <div className="text-xs text-gray-500">{card.provider}</div>
-                  <div className="text-sm font-medium line-clamp-2">{card.title}</div>
-                  {card.meta ? <div className="text-xs text-gray-500">{card.meta}</div> : null}
-                  {card.sourceUrl ? (
-                    <a className="text-xs underline" href={card.sourceUrl} target="_blank" rel="noreferrer">
-                      Source
-                    </a>
-                  ) : null}
-                  <div className="flex flex-wrap gap-1">
-                    {card.tags.map((t: string) => (
-                      <span key={t} className="text-[11px] bg-gray-100 px-2 py-0.5 rounded">
-                        {t}
-                      </span>
-                    ))}
+                <Card
+                  key={card.key}
+                  className="p-4 rounded-2xl border transition hover:shadow-md"
+                >
+                  {/* thumb */}
+                  <div className="relative mb-3 aspect-[4/3] w-full overflow-hidden rounded-xl bg-gray-100">
+                    {card.image ? (
+                      <Image
+                        src={card.image}
+                        alt={card.title}
+                        fill
+                        sizes="(min-width:1280px) 25vw, (min-width:1024px) 33vw, (min-width:640px) 50vw, 100vw"
+                        className="object-cover transition-transform duration-200 hover:scale-[1.02]"
+                      />
+                    ) : null}
                   </div>
-                  <div className="mt-1 flex items-center gap-2">
+
+                  {/* title + meta */}
+                  <div className="text-xs text-gray-500 flex items-center justify-between gap-2">
+                    <span className="uppercase tracking-wide">{card.provider}</span>
+                    {card.meta ? <span className="truncate">{card.meta}</span> : null}
+                  </div>
+
+                  <h3 className="mt-1 text-base font-semibold leading-tight line-clamp-2">
+                    {card.title}
+                  </h3>
+
+                  {/* tags */}
+                  {card.tags?.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {card.tags.map((t) => (
+                        <span
+                          key={t}
+                          className="text-[11px] rounded-full bg-gray-100 px-2 py-0.5"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {/* actions */}
+                  <div className="mt-3 flex items-center gap-2">
                     {card.existsRecipeId ? (
                       <>
-                        <Link className="text-xs underline" href={`/recipes/${card.existsRecipeId}`}>
+                        <Link
+                          className="text-sm underline"
+                          href={`/recipes/${card.existsRecipeId}`}
+                        >
                           Open
                         </Link>
                         <Button
@@ -415,10 +442,22 @@ export default function RecipesClient({ initialLibrary }: { initialLibrary: Reci
                         {importOne.isPending ? "Importing…" : "Import"}
                       </Button>
                     )}
+
+                    {card.sourceUrl ? (
+                      <a
+                        className="ml-auto text-xs underline"
+                        href={card.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Source
+                      </a>
+                    ) : null}
                   </div>
-                </div>
+                </Card>
               ))}
             </div>
+
 
             {(total > pageSize || page > 1) && (
               <div className="flex items-center gap-2 mt-2">

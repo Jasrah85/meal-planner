@@ -19,7 +19,7 @@ export default async function PantriesIndex() {
       <h1 className="text-2xl font-semibold">Pantries</h1>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {pantries.map((p) => (
-          <Card key={p.id} className="p-4 flex items-center justify-between">
+          <Card key={p.id} className="card p-4 card-hover flex items-center justify-between">
             <div className="font-medium">{p.name}</div>
             <div className="flex gap-2">
               <Link className="underline text-sm" href={`/p/${p.id}`}>Overview</Link>
@@ -29,7 +29,7 @@ export default async function PantriesIndex() {
           </Card>
         ))}
         {pantries.length === 0 && (
-          <Card className="p-4 text-sm">
+          <Card className="card p-4 card-hover flex items-center justify-between">
             No pantries yet. Go to <Link className="underline" href="/settings">Settings</Link> to add one.
           </Card>
         )}
